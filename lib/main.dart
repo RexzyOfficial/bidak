@@ -44,7 +44,29 @@ class _BidakAppState extends State<BidakApp> {
       ),
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Bidak'),
+          title: AnimatedBuilder(
+            animation: _c,
+            builder: (context, _) {
+              if (_c.status.isNotEmpty) {
+                return Row(
+                  children: [
+                    const Text('Bidak'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _c.status,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFFFFAB40),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return const Text('Bidak');
+            },
+          ),
           actions: [
             IconButton(icon: const Icon(Icons.flip), onPressed: _c.flip),
             IconButton(icon: const Icon(Icons.undo), onPressed: _c.undo),
@@ -85,10 +107,7 @@ class _SuggestionPanel extends StatelessWidget {
   final GameController c;
   const _SuggestionPanel({required this.c});
 
-  String _fmt(int cp) {
-    final s = cp >= 0 ? '+$cp' : '$cp';
-    return '$s cp';
-  }
+  String _fmt(int cp) => '${cp >= 0 ? '+$cp' : '$cp'} cp';
 
   @override
   Widget build(BuildContext context) {
@@ -112,8 +131,10 @@ class _SuggestionPanel extends StatelessWidget {
       );
     }
     if (c.lastLines.isEmpty) {
-      return const Center(
-        child: Text('jalan satu langkah untuk melihat saran'),
+      return Center(
+        child: Text(c.gameOver
+            ? c.status
+            : 'jalan satu langkah untuk melihat saran'),
       );
     }
     return ListView.builder(
@@ -121,10 +142,9 @@ class _SuggestionPanel extends StatelessWidget {
       itemCount: c.lastLines.length,
       itemBuilder: (context, i) {
         final l = c.lastLines[i];
-        final move = l.move.toUci();
         final score = l.isMate ? 'mate ${l.mateIn}' : _fmt(l.scoreCp);
-        final isChosen = c.chosenMove != null && l.move.toUci() == c.chosenMove!.toUci();
-
+        final isChosen =
+            c.chosenMove != null && l.move.toUci() == c.chosenMove!.toUci();
         return ListTile(
           dense: true,
           leading: CircleAvatar(
@@ -140,7 +160,7 @@ class _SuggestionPanel extends StatelessWidget {
             ),
           ),
           title: Text(
-            move,
+            l.move.toUci(),
             style: TextStyle(
               fontFamily: 'monospace',
               fontWeight: isChosen ? FontWeight.bold : null,
