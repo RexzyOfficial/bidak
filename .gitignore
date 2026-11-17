@@ -10,3 +10,4 @@ local.properties
 android/local.properties
 android/.gradle/
 android/app/.cxx/
+external/nnue/
