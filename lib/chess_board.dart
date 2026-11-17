@@ -6,10 +6,13 @@ class ChessBoardView extends StatelessWidget {
   final GameController c;
   const ChessBoardView({super.key, required this.c});
 
-  // Satu set glyph SOLID untuk dua warna. Warna dibedakan lewat TextStyle.
+  // \uFE0E (Variation Selector-15) memaksa Android merender sebagai teks,
+  // bukan emoji 3D. Tanpa ini, warna TextStyle diabaikan.
   static const _glyphs = {
-    'P': '♟', 'N': '♞', 'B': '♝', 'R': '♜', 'Q': '♛', 'K': '♚',
-    'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚',
+    'P': '\u265F\uFE0E', 'N': '\u265E\uFE0E', 'B': '\u265D\uFE0E',
+    'R': '\u265C\uFE0E', 'Q': '\u265B\uFE0E', 'K': '\u265A\uFE0E',
+    'p': '\u265F\uFE0E', 'n': '\u265E\uFE0E', 'b': '\u265D\uFE0E',
+    'r': '\u265C\uFE0E', 'q': '\u265B\uFE0E', 'k': '\u265A\uFE0E',
   };
 
   @override
@@ -102,7 +105,6 @@ class _BoardPainter extends CustomPainter {
       final center = _center(idx);
       final glyph = glyphs[p] ?? p;
 
-      // Outline + fill agar bidak solid dan terbaca di kotak terang/gelap.
       final outline = isWhite ? Colors.black87 : Colors.white70;
       final fill = isWhite ? Colors.white : Colors.black;
 
@@ -112,6 +114,7 @@ class _BoardPainter extends CustomPainter {
           style: TextStyle(
             fontSize: sq * 0.80,
             height: 1.0,
+            fontFamily: 'serif', // memastikan glyph tersedia
             foreground: Paint()
               ..style = PaintingStyle.stroke
               ..strokeWidth = sq * 0.035
@@ -127,6 +130,7 @@ class _BoardPainter extends CustomPainter {
           style: TextStyle(
             fontSize: sq * 0.80,
             height: 1.0,
+            fontFamily: 'serif',
             color: fill,
           ),
         ),
@@ -141,7 +145,7 @@ class _BoardPainter extends CustomPainter {
       body.paint(canvas, off);
     }
 
-    // Panah saran engine. Digambar dari mpv3 ke mpv1 agar top-1 di atas.
+    // Panah saran engine.
     if (c.lastLines.isNotEmpty) {
       final colors = [
         const Color(0xFF8D6E63), // mpv3 bronze
