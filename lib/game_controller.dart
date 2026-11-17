@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'chess_types.dart';
+import 'humanizer.dart';
 import 'movegen.dart';
 import 'stockfish_ffi.dart';
 
 class GameController extends ChangeNotifier {
   final StockfishFfi engine;
+  final Humanizer humanizer = Humanizer();
 
   List<String> board = List.filled(64, '.');
   bool whiteToMove = true;
@@ -12,6 +14,7 @@ class GameController extends ChangeNotifier {
   int? selected;
   Set<int> selectedTargets = {};
   Move? lastMove;
+  Move? chosenMove;
   bool thinking = false;
   bool engineReady = false;
   List<EngineLine> lastLines = [];
@@ -35,6 +38,7 @@ class GameController extends ChangeNotifier {
     selected = null;
     selectedTargets = {};
     lastMove = null;
+    chosenMove = null;
     thinking = false;
     lastLines = [];
     _undo.clear();
@@ -54,6 +58,7 @@ class GameController extends ChangeNotifier {
     lastMove = s.lastMove;
     selected = null;
     selectedTargets = {};
+    chosenMove = null;
     lastLines = [];
     notifyListeners();
   }
@@ -110,6 +115,7 @@ class GameController extends ChangeNotifier {
     whiteToMove = !whiteToMove;
     selected = null;
     selectedTargets = {};
+    chosenMove = null;
     notifyListeners();
     _advise();
   }
@@ -118,10 +124,26 @@ class GameController extends ChangeNotifier {
     if (!engineReady || thinking) return;
     thinking = true;
     lastLines = [];
+    chosenMove = null;
     notifyListeners();
+    
     try {
-      final lines = await engine.analyse(toFen(), depth: 6);
-      lastLines = lines;
+      final lines = await engine.analyse(toFen(), depth: 8);
+      if (lines.isNotEmpty) {
+        lastLines = lines;
+        
+        // Pilih langkah dengan Humanizer
+        chosenMove = humanizer.pick(lines, weAreWhite: whiteToMove);
+        
+        // Simulasi waktu pikir manusia
+        final pieceCount = board.where((p) => p != '.').length;
+        final delay = humanizer.thinkDelay(pieceCount: pieceCount, inCheck: false);
+        
+        // Tampilkan panah saran SETELAH delay (meniru waktu berpikir)
+        thinking = false;
+        notifyListeners();
+        await Future.delayed(delay);
+      }
     } catch (_) {
       lastLines = [];
     } finally {

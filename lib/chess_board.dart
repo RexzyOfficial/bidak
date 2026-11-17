@@ -31,11 +31,9 @@ class ChessBoardView extends StatelessWidget {
           },
           child: Stack(
             children: [
-              // Layer 1: Papan, titik, dan panah.
               Positioned.fill(
                 child: CustomPaint(painter: _BoardPainter(c, sq)),
               ),
-              // Layer 2: Bidak SVG.
               for (var i = 0; i < 64; i++)
                 if (c.board[i] != '.')
                   Positioned(
@@ -97,7 +95,6 @@ class _BoardPainter extends CustomPainter {
       }
     }
 
-    // Titik langkah legal.
     for (final idx in c.selectedTargets) {
       final center = _center(idx);
       final isCapture = c.board[idx] != '.';
@@ -119,25 +116,26 @@ class _BoardPainter extends CustomPainter {
       }
     }
 
-    // Panah saran engine.
+    // Panah
     if (c.lastLines.isNotEmpty) {
-      final colors = [
-        const Color(0xFF8D6E63), // mpv3 bronze
-        const Color(0xFF90A4AE), // mpv2 silver
-        const Color(0xFFF5B301), // mpv1 gold
-      ];
       final sorted = [...c.lastLines]
         ..sort((a, b) => b.multipv.compareTo(a.multipv));
       for (final line in sorted) {
-        final colorIdx = line.multipv - 1;
-        if (colorIdx < 0 || colorIdx >= colors.length) continue;
+        final isChosen = c.chosenMove != null && 
+            line.move.toUci() == c.chosenMove!.toUci();
+        
+        // Pilihan Humanizer = Emas. Sisanya = Abu-abu transparan.
+        final color = isChosen ? const Color(0xFFF5B301) : const Color(0xFF90A4AE);
+        final scale = isChosen ? 1.0 : 0.65;
+        final opacity = isChosen ? 0.9 : 0.5;
+
         _drawArrow(
           canvas,
           _center(line.move.from),
           _center(line.move.to),
-          colors[colorIdx],
+          color.withOpacity(opacity),
           sq,
-          line.multipv == 1 ? 1.0 : 0.75,
+          scale,
         );
       }
     }
@@ -157,7 +155,7 @@ class _BoardPainter extends CustomPainter {
       start,
       end,
       Paint()
-        ..color = color.withOpacity(0.85)
+        ..color = color
         ..strokeWidth = stroke
         ..strokeCap = StrokeCap.round,
     );
@@ -176,7 +174,7 @@ class _BoardPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = color.withOpacity(0.85)
+        ..color = color
         ..style = PaintingStyle.fill,
     );
   }

@@ -46,21 +46,9 @@ class _BidakAppState extends State<BidakApp> {
         appBar: AppBar(
           title: const Text('Bidak'),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.flip),
-              tooltip: 'flip',
-              onPressed: _c.flip,
-            ),
-            IconButton(
-              icon: const Icon(Icons.undo),
-              tooltip: 'undo',
-              onPressed: _c.undo,
-            ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: 'reset',
-              onPressed: _c.reset,
-            ),
+            IconButton(icon: const Icon(Icons.flip), onPressed: _c.flip),
+            IconButton(icon: const Icon(Icons.undo), onPressed: _c.undo),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _c.reset),
           ],
         ),
         body: AnimatedBuilder(
@@ -135,13 +123,29 @@ class _SuggestionPanel extends StatelessWidget {
         final l = c.lastLines[i];
         final move = l.move.toUci();
         final score = l.isMate ? 'mate ${l.mateIn}' : _fmt(l.scoreCp);
+        final isChosen = c.chosenMove != null && l.move.toUci() == c.chosenMove!.toUci();
+
         return ListTile(
           dense: true,
           leading: CircleAvatar(
             radius: 14,
-            child: Text('${l.multipv}', style: const TextStyle(fontSize: 12)),
+            backgroundColor: isChosen ? const Color(0xFFF5B301) : null,
+            child: Text(
+              '${l.multipv}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isChosen ? Colors.black : null,
+                fontWeight: isChosen ? FontWeight.bold : null,
+              ),
+            ),
           ),
-          title: Text(move, style: const TextStyle(fontFamily: 'monospace')),
+          title: Text(
+            move,
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontWeight: isChosen ? FontWeight.bold : null,
+            ),
+          ),
           subtitle: Text('depth ${l.depth} · $score'),
         );
       },
