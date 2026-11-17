@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'stockfish_ffi.dart';
 import 'chess_types.dart';
@@ -18,37 +19,47 @@ class EngineTestPage extends StatefulWidget {
 class _EngineTestPageState extends State<EngineTestPage> {
   final StockfishFfi _engine = StockfishFfi();
   final StringBuffer _log = StringBuffer();
-  bool _inited = false;
-  bool _busy = false;
+  final List<StreamSubscription> _subs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _subs.add(_engine.rawLines.listen((l) => _add('RAW $l')));
+  }
+
+  @override
+  void dispose() {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    _engine.dispose();
+    super.dispose();
+  }
 
   void _add(String s) {
+    if (!mounted) return;
     setState(() => _log.writeln(s));
   }
 
   Future<void> _init() async {
-    setState(() => _busy = true);
     try {
       await _engine.init(nnuePath: '');
-      _inited = true;
       _add('engine: init ok');
     } catch (e) {
       _add('engine: init FAILED: $e');
-    } finally {
-      setState(() => _busy = false);
     }
   }
 
   Future<void> _test() async {
-    if (!_inited) {
+    if (!_engine.isInited) {
       _add('engine belum init');
       return;
     }
-    setState(() => _busy = true);
+    _add('analyse depth 6 ...');
     try {
       const startFen =
           'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-      _add('analyse depth 12 ...');
-      final lines = await _engine.analyse(startFen, depth: 12);
+      final lines = await _engine.analyse(startFen, depth: 6);
       if (lines.isEmpty) {
         _add('hasil kosong (timeout atau parse gagal)');
       } else {
@@ -60,8 +71,6 @@ class _EngineTestPageState extends State<EngineTestPage> {
       }
     } catch (e) {
       _add('analyse FAILED: $e');
-    } finally {
-      setState(() => _busy = false);
     }
   }
 
@@ -78,15 +87,15 @@ class _EngineTestPageState extends State<EngineTestPage> {
               children: [
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _busy ? null : _init,
-                    child: const Text('init engine'),
+                    onPressed: _init,
+                    child: const Text('init'),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _busy ? null : _test,
-                    child: const Text('analyse start'),
+                    onPressed: _test,
+                    child: const Text('analyse d6'),
                   ),
                 ),
               ],
@@ -96,11 +105,10 @@ class _EngineTestPageState extends State<EngineTestPage> {
               child: SingleChildScrollView(
                 child: Text(
                   _log.isEmpty ? '(log kosong)' : _log.toString(),
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                 ),
               ),
             ),
-            if (_busy) const LinearProgressIndicator(),
           ],
         ),
       ),
