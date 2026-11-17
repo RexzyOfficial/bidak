@@ -17,7 +17,7 @@ class ChessBoardView extends StatelessWidget {
     final selected = c.selected;
     if (selected != null &&
         c.selectedTargets.contains(idx) &&
-        MoveGen.requiresPromotion(selected, idx)) {
+        MoveGen.requiresPromotion(c.board, selected, idx)) {
       final piece = await showModalBottomSheet<String>(
         context: context,
         builder: (ctx) => SafeArea(

@@ -293,10 +293,15 @@ class MoveGen {
     return legal;
   }
 
-  static bool requiresPromotion(int from, int to) {
-    final p = from;
+  // Perbaikan: Cek apakah bidak yang bergerak benar-benar PION,
+  // dan cek warnanya agar target baris promosi sesuai.
+  static bool requiresPromotion(List<String> board, int from, int to) {
+    final p = board[from];
+    if (p == '.') return false;
+    if (p.toLowerCase() != 'p') return false;
+    
+    final isWhite = p == p.toUpperCase();
     final tR = to ~/ 8;
-    final pieceRow = p ~/ 8;
-    return (pieceRow == 1 && tR == 0) || (pieceRow == 6 && tR == 7);
+    return (isWhite && tR == 0) || (!isWhite && tR == 7);
   }
 }
