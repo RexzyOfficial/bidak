@@ -6,8 +6,7 @@ plugins {
 
 android {
     namespace = "com.rexzy.bidak"
-    compileSdk = 34
-    ndkVersion = "26.1.10909125"
+    compileSdk = 35
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -21,11 +20,10 @@ android {
     defaultConfig {
         applicationId = "com.rexzy.bidak"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
 
-        // Dua ABI: arm64-v8a (modern, NNUE) + armeabi-v7a (32-bit, klasik).
         ndk {
             abiFilters "arm64-v8a", "armeabi-v7a"
         }
