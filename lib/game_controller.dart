@@ -60,31 +60,37 @@ class GameController extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _isWhitePiece(String p) => p != '.' && p == p.toUpperCase();
+
   void select(int idx) {
     if (thinking) return;
     final p = board[idx];
+
     if (selected == null) {
       if (p == '.') return;
-      final isWhite = p == p.toUpperCase();
-      if (isWhite != whiteToMove) return;
+      if (_isWhitePiece(p) != whiteToMove) return;
       selected = idx;
       notifyListeners();
       return;
     }
+
     if (selected == idx) {
       selected = null;
       notifyListeners();
       return;
     }
+
     final selP = board[selected!];
-    final selIsWhite = selP == selP.toUpperCase();
-    final targetP = board[idx];
-    if (selIsWhite == whiteToMove && targetP != '.' &&
-        targetP == targetP.toUpperCase() == whiteToMove) {
+    final selIsWhite = _isWhitePiece(selP);
+    final targetIsWhite = _isWhitePiece(p);
+
+    // Ketuk bidak sendiri: pilih ulang.
+    if (p != '.' && targetIsWhite == selIsWhite) {
       selected = idx;
       notifyListeners();
       return;
     }
+
     _applyManual(selected!, idx);
   }
 
