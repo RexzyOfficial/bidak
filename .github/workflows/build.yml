@@ -24,6 +24,12 @@ jobs:
       - name: Fetch engine sources (sf16.1, sf11, nnue)
         run: bash tools/fetch_engine.sh
 
+      - name: Copy NNUE into sf16 source dir for embedding
+        run: |
+          cp external/nnue/nn-b1a57edbea57.nnue external/sf16/src/
+          cp external/nnue/nn-baff1ede1f90.nnue external/sf16/src/
+          ls -lh external/sf16/src/*.nnue
+
       - name: Setup Android NDK env
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
