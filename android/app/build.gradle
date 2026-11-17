@@ -37,6 +37,13 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // Setara extractNativeLibs="true": .so diekstrak ke disk saat install.
+            useLegacyPackaging = true
+        }
+    }
+
     sourceSets {
         main {
             jniLibs.srcDirs = ['src/main/jniLibs']
