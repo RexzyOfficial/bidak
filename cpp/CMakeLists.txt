@@ -28,6 +28,7 @@ if (ANDROID_ABI STREQUAL "arm64-v8a")
     "${SF16}/tune.cpp"
     "${SF16}/uci.cpp"
     "${SF16}/ucioption.cpp"
+    "${SF16}/syzygy/tbprobe.cpp"
     "${SF16}/nnue/evaluate_nnue.cpp"
     "${SF16}/nnue/features/half_ka_v2_hm.cpp"
   )
