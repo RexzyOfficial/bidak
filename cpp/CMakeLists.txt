@@ -8,16 +8,15 @@ set(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(SF16 "${ROOT}/external/sf16/src")
 set(SF11 "${ROOT}/external/sf11/src")
 
-# Pilih source engine berdasarkan ABI yang sedang dibangun.
 if (ANDROID_ABI STREQUAL "arm64-v8a")
   message(STATUS "bidak: building Stockfish 16.1 for arm64-v8a")
   set(ENGINE_SRC_DIR "${SF16}")
   set(ENGINE_STD 17)
-  set(ENGINE_DEFS "")
   set(SF_SOURCES
     "${SF16}/benchmark.cpp"
     "${SF16}/bitboard.cpp"
     "${SF16}/evaluate.cpp"
+    "${SF16}/main.cpp"
     "${SF16}/misc.cpp"
     "${SF16}/movegen.cpp"
     "${SF16}/movepick.cpp"
@@ -36,13 +35,13 @@ elseif (ANDROID_ABI STREQUAL "armeabi-v7a")
   message(STATUS "bidak: building Stockfish 11 for armeabi-v7a")
   set(ENGINE_SRC_DIR "${SF11}")
   set(ENGINE_STD 11)
-  set(ENGINE_DEFS "")
   set(SF_SOURCES
     "${SF11}/benchmark.cpp"
     "${SF11}/bitbase.cpp"
     "${SF11}/bitboard.cpp"
     "${SF11}/endgame.cpp"
     "${SF11}/evaluate.cpp"
+    "${SF11}/main.cpp"
     "${SF11}/material.cpp"
     "${SF11}/misc.cpp"
     "${SF11}/movegen.cpp"
@@ -67,8 +66,6 @@ add_library(stockfish SHARED
   ${SF_SOURCES}
 )
 
-# Ganti nama simbol main() Stockfish -> stockfish_main agar bisa dipanggil wrapper.
-# Trik ini tidak menyentuh file source engine.
 target_compile_options(stockfish PRIVATE
   -Dmain=stockfish_main
   -fvisibility=hidden
@@ -76,14 +73,9 @@ target_compile_options(stockfish PRIVATE
   -funroll-loops
 )
 
-target_compile_definitions(stockfish PRIVATE
-  NDEBUG
-  ${ENGINE_DEFS}
-)
+target_compile_definitions(stockfish PRIVATE NDEBUG)
 
-target_include_directories(stockfish PRIVATE
-  "${ENGINE_SRC_DIR}"
-)
+target_include_directories(stockfish PRIVATE "${ENGINE_SRC_DIR}")
 
 set_target_properties(stockfish PROPERTIES
   CXX_STANDARD ${ENGINE_STD}
