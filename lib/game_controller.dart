@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'chess_types.dart';
+import 'movegen.dart';
 import 'stockfish_ffi.dart';
 
 class GameController extends ChangeNotifier {
@@ -9,6 +10,7 @@ class GameController extends ChangeNotifier {
   bool whiteToMove = true;
   bool flipped = false;
   int? selected;
+  Set<int> selectedTargets = {};
   Move? lastMove;
   bool thinking = false;
   bool engineReady = false;
@@ -31,6 +33,7 @@ class GameController extends ChangeNotifier {
     whiteToMove = true;
     flipped = false;
     selected = null;
+    selectedTargets = {};
     lastMove = null;
     thinking = false;
     lastLines = [];
@@ -50,6 +53,7 @@ class GameController extends ChangeNotifier {
     whiteToMove = s.whiteToMove;
     lastMove = s.lastMove;
     selected = null;
+    selectedTargets = {};
     lastLines = [];
     notifyListeners();
   }
@@ -70,12 +74,14 @@ class GameController extends ChangeNotifier {
       if (p == '.') return;
       if (_isWhitePiece(p) != whiteToMove) return;
       selected = idx;
+      selectedTargets = MoveGen.targets(board, idx).toSet();
       notifyListeners();
       return;
     }
 
     if (selected == idx) {
       selected = null;
+      selectedTargets = {};
       notifyListeners();
       return;
     }
@@ -84,12 +90,14 @@ class GameController extends ChangeNotifier {
     final selIsWhite = _isWhitePiece(selP);
     final targetIsWhite = _isWhitePiece(p);
 
-    // Ketuk bidak sendiri: pilih ulang.
     if (p != '.' && targetIsWhite == selIsWhite) {
       selected = idx;
+      selectedTargets = MoveGen.targets(board, idx).toSet();
       notifyListeners();
       return;
     }
+
+    if (!selectedTargets.contains(idx)) return;
 
     _applyManual(selected!, idx);
   }
@@ -101,6 +109,7 @@ class GameController extends ChangeNotifier {
     lastMove = Move(from, to);
     whiteToMove = !whiteToMove;
     selected = null;
+    selectedTargets = {};
     notifyListeners();
     _advise();
   }
