@@ -12,7 +12,7 @@
 //   int  sf_init(const char* nnue_path);
 //   int  sf_cmd(const char* cmd);
 //   int  sf_read(char* buf, int maxlen);
-//   void SF_EXPORT sf_quit();
+//   SF_EXPORT SF_EXPORT void sf_quit();
 
 #include <cstdio>
 #include <cstring>
@@ -78,7 +78,7 @@ void engine_thread() {
 
 extern "C" {
 
-int SF_EXPORT sf_init(const char* nnue_path) {
+SF_EXPORT SF_EXPORT int sf_init(const char* nnue_path) {
   if (g_running.load()) return 0; // sudah jalan
 
   if (pipe(g_in_pipe) != 0) return -1;
@@ -106,7 +106,7 @@ int SF_EXPORT sf_init(const char* nnue_path) {
   return 0;
 }
 
-int SF_EXPORT sf_cmd(const char* cmd) {
+SF_EXPORT SF_EXPORT int sf_cmd(const char* cmd) {
   if (!g_running.load() || cmd == nullptr) return -1;
   std::string s(cmd);
   s.push_back('\n');
@@ -115,7 +115,7 @@ int SF_EXPORT sf_cmd(const char* cmd) {
   return (w == (ssize_t)s.size()) ? 0 : -2;
 }
 
-int SF_EXPORT sf_read(char* buf, int maxlen) {
+SF_EXPORT SF_EXPORT int sf_read(char* buf, int maxlen) {
   if (buf == nullptr || maxlen <= 0) return -1;
   std::lock_guard<std::mutex> lk(g_buf_mu);
   if (g_buf.empty()) return -1;
@@ -132,7 +132,7 @@ int SF_EXPORT sf_read(char* buf, int maxlen) {
   return (int)take;
 }
 
-void sf_quit() {
+SF_EXPORT void sf_quit() {
   if (!g_running.load()) return;
   // Kirim quit agar Stockfish keluar dari loop UCI.
   {
