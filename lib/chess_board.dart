@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'game_controller.dart';
+import 'movegen.dart';
 
 class ChessBoardView extends StatelessWidget {
   final GameController c;
@@ -9,8 +10,47 @@ class ChessBoardView extends StatelessWidget {
 
   String _pieceCode(String p) {
     final isWhite = p == p.toUpperCase();
-    final prefix = isWhite ? 'w' : 'b';
-    return '$prefix${p.toUpperCase()}';
+    return '${isWhite ? 'w' : 'b'}${p.toUpperCase()}';
+  }
+
+  Future<void> _onTap(BuildContext context, int idx, double sq) async {
+    final selected = c.selected;
+    if (selected != null &&
+        c.selectedTargets.contains(idx) &&
+        MoveGen.requiresPromotion(selected, idx)) {
+      final piece = await showModalBottomSheet<String>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Text('Promosi pion'),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  for (final p in ['q', 'r', 'b', 'n'])
+                    IconButton(
+                      iconSize: 44,
+                      onPressed: () => Navigator.pop(ctx, p),
+                      icon: SvgPicture.asset(
+                        'assets/pieces/${c.whiteToMove ? 'w' : 'b'}${p.toUpperCase()}.svg',
+                        width: 44,
+                        height: 44,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+      if (piece != null) c.applyPromotion(selected, idx, piece);
+      return;
+    }
+    c.select(idx);
   }
 
   @override
@@ -27,7 +67,7 @@ class ChessBoardView extends StatelessWidget {
             var f = (local.dx / sq).floor().clamp(0, 7);
             var r = (local.dy / sq).floor().clamp(0, 7);
             if (c.flipped) { f = 7 - f; r = 7 - r; }
-            c.select(r * 8 + f);
+            _onTap(context, r * 8 + f, sq);
           },
           child: Stack(
             children: [
@@ -77,6 +117,10 @@ class _BoardPainter extends CustomPainter {
     final dark = Paint()..color = const Color(0xFFB58863);
     final sel = Paint()..color = const Color(0x66FFEB3B);
     final last = Paint()..color = const Color(0x4400BCD4);
+    final check = Paint()..color = const Color(0xAAFF1744);
+
+    final kingSquare = MoveGen.findKing(c.board, c.whiteToMove);
+    final inCheck = MoveGen.isInCheck(c.board, c.whiteToMove);
 
     for (var r = 0; r < 8; r++) {
       for (var f = 0; f < 8; f++) {
@@ -91,6 +135,9 @@ class _BoardPainter extends CustomPainter {
         }
         if (c.selected == idx) {
           canvas.drawRect(rect, sel);
+        }
+        if (inCheck && idx == kingSquare) {
+          canvas.drawCircle(rect.center, sq * 0.42, check);
         }
       }
     }
@@ -116,19 +163,15 @@ class _BoardPainter extends CustomPainter {
       }
     }
 
-    // Panah
     if (c.lastLines.isNotEmpty) {
       final sorted = [...c.lastLines]
         ..sort((a, b) => b.multipv.compareTo(a.multipv));
       for (final line in sorted) {
-        final isChosen = c.chosenMove != null && 
-            line.move.toUci() == c.chosenMove!.toUci();
-        
-        // Pilihan Humanizer = Emas. Sisanya = Abu-abu transparan.
+        final isChosen =
+            c.chosenMove != null && line.move.toUci() == c.chosenMove!.toUci();
         final color = isChosen ? const Color(0xFFF5B301) : const Color(0xFF90A4AE);
         final scale = isChosen ? 1.0 : 0.65;
         final opacity = isChosen ? 0.9 : 0.5;
-
         _drawArrow(
           canvas,
           _center(line.move.from),
@@ -181,4 +224,179 @@ class _BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BoardPainter old) => true;
+}
+cat > lib/main.dart <<'EOF'
+import 'package:flutter/material.dart';
+import 'chess_board.dart';
+import 'game_controller.dart';
+import 'stockfish_ffi.dart';
+
+void main() {
+  runApp(const BidakApp());
+}
+
+class BidakApp extends StatefulWidget {
+  const BidakApp({super.key});
+  @override
+  State<BidakApp> createState() => _BidakAppState();
+}
+
+class _BidakAppState extends State<BidakApp> {
+  final StockfishFfi _engine = StockfishFfi();
+  late final GameController _c = GameController(_engine);
+
+  @override
+  void initState() {
+    super.initState();
+    _c.initEngine().catchError((e) {
+      debugPrint('engine init gagal: $e');
+    });
+  }
+
+  @override
+  void dispose() {
+    _engine.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFB58863),
+          brightness: Brightness.dark,
+        ),
+      ),
+      home: Scaffold(
+        appBar: AppBar(
+          title: AnimatedBuilder(
+            animation: _c,
+            builder: (context, _) {
+              if (_c.status.isNotEmpty) {
+                return Row(
+                  children: [
+                    const Text('Bidak'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        _c.status,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFFFFAB40),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              return const Text('Bidak');
+            },
+          ),
+          actions: [
+            IconButton(icon: const Icon(Icons.flip), onPressed: _c.flip),
+            IconButton(icon: const Icon(Icons.undo), onPressed: _c.undo),
+            IconButton(icon: const Icon(Icons.refresh), onPressed: _c.reset),
+          ],
+        ),
+        body: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            return Column(
+              children: [
+                Expanded(
+                  flex: 6,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: 1,
+                        child: ChessBoardView(c: _c),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: _SuggestionPanel(c: _c),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _SuggestionPanel extends StatelessWidget {
+  final GameController c;
+  const _SuggestionPanel({required this.c});
+
+  String _fmt(int cp) => '${cp >= 0 ? '+$cp' : '$cp'} cp';
+
+  @override
+  Widget build(BuildContext context) {
+    if (!c.engineReady) {
+      return const Center(child: Text('engine memuat...'));
+    }
+    if (c.thinking) {
+      return const Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('engine berpikir...'),
+          ],
+        ),
+      );
+    }
+    if (c.lastLines.isEmpty) {
+      return Center(
+        child: Text(c.gameOver
+            ? c.status
+            : 'jalan satu langkah untuk melihat saran'),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: c.lastLines.length,
+      itemBuilder: (context, i) {
+        final l = c.lastLines[i];
+        final score = l.isMate ? 'mate ${l.mateIn}' : _fmt(l.scoreCp);
+        final isChosen =
+            c.chosenMove != null && l.move.toUci() == c.chosenMove!.toUci();
+        return ListTile(
+          dense: true,
+          leading: CircleAvatar(
+            radius: 14,
+            backgroundColor: isChosen ? const Color(0xFFF5B301) : null,
+            child: Text(
+              '${l.multipv}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isChosen ? Colors.black : null,
+                fontWeight: isChosen ? FontWeight.bold : null,
+              ),
+            ),
+          ),
+          title: Text(
+            l.move.toUci(),
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontWeight: isChosen ? FontWeight.bold : null,
+            ),
+          ),
+          subtitle: Text('depth ${l.depth} · $score'),
+        );
+      },
+    );
+  }
 }
