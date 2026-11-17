@@ -1,117 +1,150 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
+import 'chess_board.dart';
+import 'game_controller.dart';
 import 'stockfish_ffi.dart';
-import 'chess_types.dart';
 
 void main() {
-  runApp(const MaterialApp(
-    debugShowCheckedModeBanner: false,
-    home: EngineTestPage(),
-  ));
+  runApp(const BidakApp());
 }
 
-class EngineTestPage extends StatefulWidget {
-  const EngineTestPage({super.key});
+class BidakApp extends StatefulWidget {
+  const BidakApp({super.key});
   @override
-  State<EngineTestPage> createState() => _EngineTestPageState();
+  State<BidakApp> createState() => _BidakAppState();
 }
 
-class _EngineTestPageState extends State<EngineTestPage> {
+class _BidakAppState extends State<BidakApp> {
   final StockfishFfi _engine = StockfishFfi();
-  final StringBuffer _log = StringBuffer();
-  final List<StreamSubscription> _subs = [];
+  late final GameController _c = GameController(_engine);
 
   @override
   void initState() {
     super.initState();
-    _subs.add(_engine.rawLines.listen((l) => _add('RAW $l')));
+    _c.initEngine().catchError((e) {
+      debugPrint('engine init gagal: $e');
+    });
   }
 
   @override
   void dispose() {
-    for (final s in _subs) {
-      s.cancel();
-    }
     _engine.dispose();
     super.dispose();
   }
 
-  void _add(String s) {
-    if (!mounted) return;
-    setState(() => _log.writeln(s));
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFB58863),
+          brightness: Brightness.dark,
+        ),
+      ),
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text('Bidak'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.flip),
+              tooltip: 'flip',
+              onPressed: _c.flip,
+            ),
+            IconButton(
+              icon: const Icon(Icons.undo),
+              tooltip: 'undo',
+              onPressed: _c.undo,
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'reset',
+              onPressed: _c.reset,
+            ),
+          ],
+        ),
+        body: AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            return Column(
+              children: [
+                Expanded(
+                  flex: 6,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: 1,
+                        child: ChessBoardView(c: _c),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: _SuggestionPanel(c: _c),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
+}
 
-  Future<void> _init() async {
-    try {
-      await _engine.init(nnuePath: '');
-      _add('engine: init ok');
-    } catch (e) {
-      _add('engine: init FAILED: $e');
-    }
-  }
+class _SuggestionPanel extends StatelessWidget {
+  final GameController c;
+  const _SuggestionPanel({required this.c});
 
-  Future<void> _test() async {
-    if (!_engine.isInited) {
-      _add('engine belum init');
-      return;
-    }
-    _add('analyse depth 6 ...');
-    try {
-      const startFen =
-          'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-      final lines = await _engine.analyse(startFen, depth: 6);
-      if (lines.isEmpty) {
-        _add('hasil kosong (timeout atau parse gagal)');
-      } else {
-        for (final EngineLine l in lines) {
-          _add('mpv${l.multipv} depth${l.depth} '
-              'cp=${l.scoreCp} mate=${l.isMate ? l.mateIn : '-'} '
-              'move=${l.move.toUci()}');
-        }
-      }
-    } catch (e) {
-      _add('analyse FAILED: $e');
-    }
+  String _fmt(int cp) {
+    final s = cp >= 0 ? '+$cp' : '$cp';
+    return '$s cp';
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Bidak — engine test')),
-      body: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    if (!c.engineReady) {
+      return const Center(child: Text('engine memuat...'));
+    }
+    if (c.thinking) {
+      return const Center(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _init,
-                    child: const Text('init'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _test,
-                    child: const Text('analyse d6'),
-                  ),
-                ),
-              ],
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: SingleChildScrollView(
-                child: Text(
-                  _log.isEmpty ? '(log kosong)' : _log.toString(),
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                ),
-              ),
-            ),
+            SizedBox(width: 12),
+            Text('engine berpikir...'),
           ],
         ),
-      ),
+      );
+    }
+    if (c.lastLines.isEmpty) {
+      return const Center(
+        child: Text('jalan satu langkah untuk melihat saran'),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: c.lastLines.length,
+      itemBuilder: (context, i) {
+        final l = c.lastLines[i];
+        final move = l.move.toUci();
+        final score = l.isMate ? 'mate ${l.mateIn}' : _fmt(l.scoreCp);
+        return ListTile(
+          dense: true,
+          leading: CircleAvatar(
+            radius: 14,
+            child: Text('${l.multipv}', style: const TextStyle(fontSize: 12)),
+          ),
+          title: Text(move, style: const TextStyle(fontFamily: 'monospace')),
+          subtitle: Text('depth ${l.depth} · $score'),
+        );
+      },
     );
   }
 }
