@@ -1,19 +1,17 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'game_controller.dart';
 
 class ChessBoardView extends StatelessWidget {
   final GameController c;
   const ChessBoardView({super.key, required this.c});
 
-  // \uFE0E (Variation Selector-15) memaksa Android merender sebagai teks,
-  // bukan emoji 3D. Tanpa ini, warna TextStyle diabaikan.
-  static const _glyphs = {
-    'P': '\u265F\uFE0E', 'N': '\u265E\uFE0E', 'B': '\u265D\uFE0E',
-    'R': '\u265C\uFE0E', 'Q': '\u265B\uFE0E', 'K': '\u265A\uFE0E',
-    'p': '\u265F\uFE0E', 'n': '\u265E\uFE0E', 'b': '\u265D\uFE0E',
-    'r': '\u265C\uFE0E', 'q': '\u265B\uFE0E', 'k': '\u265A\uFE0E',
-  };
+  String _pieceCode(String p) {
+    final isWhite = p == p.toUpperCase();
+    final prefix = isWhite ? 'w' : 'b';
+    return '$prefix${p.toUpperCase()}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +29,32 @@ class ChessBoardView extends StatelessWidget {
             if (c.flipped) { f = 7 - f; r = 7 - r; }
             c.select(r * 8 + f);
           },
-          child: CustomPaint(painter: _BoardPainter(c, _glyphs, sq)),
+          child: Stack(
+            children: [
+              // Layer 1: Papan, titik, dan panah.
+              Positioned.fill(
+                child: CustomPaint(painter: _BoardPainter(c, sq)),
+              ),
+              // Layer 2: Bidak SVG.
+              for (var i = 0; i < 64; i++)
+                if (c.board[i] != '.')
+                  Positioned(
+                    left: (c.flipped ? 7 - (i % 8) : (i % 8)) * sq,
+                    top: (c.flipped ? 7 - (i ~/ 8) : (i ~/ 8)) * sq,
+                    width: sq,
+                    height: sq,
+                    child: IgnorePointer(
+                      child: Padding(
+                        padding: EdgeInsets.all(sq * 0.04),
+                        child: SvgPicture.asset(
+                          'assets/pieces/${_pieceCode(c.board[i])}.svg',
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
         ),
       );
     });
@@ -40,9 +63,8 @@ class ChessBoardView extends StatelessWidget {
 
 class _BoardPainter extends CustomPainter {
   final GameController c;
-  final Map<String, String> glyphs;
   final double sq;
-  _BoardPainter(this.c, this.glyphs, this.sq) : super(repaint: c);
+  _BoardPainter(this.c, this.sq) : super(repaint: c);
 
   Offset _center(int idx) {
     var f = idx % 8;
@@ -95,54 +117,6 @@ class _BoardPainter extends CustomPainter {
           Paint()..color = const Color(0x77000000),
         );
       }
-    }
-
-    // Bidak.
-    for (var idx = 0; idx < 64; idx++) {
-      final p = c.board[idx];
-      if (p == '.') continue;
-      final isWhite = p == p.toUpperCase();
-      final center = _center(idx);
-      final glyph = glyphs[p] ?? p;
-
-      final outline = isWhite ? Colors.black87 : Colors.white70;
-      final fill = isWhite ? Colors.white : Colors.black;
-
-      final stroke = TextPainter(
-        text: TextSpan(
-          text: glyph,
-          style: TextStyle(
-            fontSize: sq * 0.80,
-            height: 1.0,
-            fontFamily: 'serif', // memastikan glyph tersedia
-            foreground: Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = sq * 0.035
-              ..color = outline,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: sq);
-
-      final body = TextPainter(
-        text: TextSpan(
-          text: glyph,
-          style: TextStyle(
-            fontSize: sq * 0.80,
-            height: 1.0,
-            fontFamily: 'serif',
-            color: fill,
-          ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout(maxWidth: sq);
-
-      final off = Offset(
-        center.dx - body.width / 2,
-        center.dy - body.height / 2,
-      );
-      stroke.paint(canvas, off);
-      body.paint(canvas, off);
     }
 
     // Panah saran engine.
