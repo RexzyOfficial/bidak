@@ -213,8 +213,6 @@ class _MoveHistory extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (c.moveHistory.isEmpty) return const SizedBox(height: 40);
-
-    // Gabungkan langkah putih dan hitam per baris (misal: "1. e4 e5")
     final List<String> items = [];
     for (int i = 0; i < c.moveHistory.length; i += 2) {
       final moveNum = (i ~/ 2) + 1;
@@ -232,7 +230,7 @@ class _MoveHistory extends StatelessWidget {
       ),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        reverse: true, // Langkah terbaru di sebelah kiri
+        reverse: true,
         itemCount: items.length,
         itemBuilder: (context, i) {
           return Center(
@@ -277,6 +275,23 @@ class _SuggestionPanel extends StatelessWidget {
         ),
       );
     }
+    
+    if (c.fromBook && c.chosenMove != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.menu_book, color: Color(0xFFF5B301), size: 32),
+            const SizedBox(height: 8),
+            Text('Langkah dari Opening Book: ${c.chosenMove!.toUci()}',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+            const Text('(Mesin tidak dijalankan untuk menghemat baterai)',
+                style: TextStyle(fontSize: 12, color: Colors.white54)),
+          ],
+        ),
+      );
+    }
+
     if (c.lastLines.isEmpty) {
       return Center(
         child: Text(c.gameOver

@@ -3,11 +3,13 @@ import 'package:flutter/foundation.dart';
 import 'chess_types.dart';
 import 'humanizer.dart';
 import 'movegen.dart';
+import 'opening_book.dart';
 import 'stockfish_ffi.dart';
 
 class GameController extends ChangeNotifier {
   final StockfishFfi engine;
   final Humanizer humanizer = Humanizer();
+  final OpeningBook book = OpeningBook();
 
   List<String> board = List.filled(64, '.');
   bool whiteToMove = true;
@@ -23,8 +25,8 @@ class GameController extends ChangeNotifier {
   List<EngineLine> lastLines = [];
   String status = '';
   bool gameOver = false;
-  
-  // Settings
+  bool fromBook = false;
+
   int engineDepth = 8;
   double blunderChance = 0.05;
   int maxThinkDelayMs = 2500;
@@ -77,6 +79,7 @@ class GameController extends ChangeNotifier {
     lastLines = [];
     status = '';
     gameOver = false;
+    fromBook = false;
     moveHistory = [];
     _undo.clear();
     notifyListeners();
@@ -102,11 +105,13 @@ class GameController extends ChangeNotifier {
     lastLines = [];
     status = '';
     gameOver = false;
+    fromBook = false;
     notifyListeners();
   }
 
   Future<void> initEngine() async {
     await engine.init(nnuePath: '');
+    await book.load();
     engineReady = true;
     notifyListeners();
   }
@@ -155,7 +160,6 @@ class GameController extends ChangeNotifier {
     }
 
     if (!selectedTargets.contains(idx)) return;
-
     _applyManual(selected!, idx);
   }
 
@@ -309,8 +313,25 @@ class GameController extends ChangeNotifier {
     thinking = true;
     lastLines = [];
     chosenMove = null;
+    fromBook = false;
     notifyListeners();
+
     try {
+      // 1. Cek Opening Book (maksimal 15 langkah / 7.5 putaran)
+      if (moveHistory.length < 15) {
+        final bookMove = book.getMove(moveHistory, board);
+        if (bookMove != null) {
+          chosenMove = bookMove;
+          fromBook = true;
+          thinking = false;
+          notifyListeners();
+          // Jeda pikir singkat untuk buku
+          await Future.delayed(Duration(milliseconds: 500 + Random().nextInt(800)));
+          return;
+        }
+      }
+
+      // 2. Jika tidak ada di buku, panggil Stockfish
       final lines = await engine.analyse(toFen(), depth: engineDepth);
       if (lines.isNotEmpty) {
         lastLines = lines;
