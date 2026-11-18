@@ -5,7 +5,9 @@ class Humanizer {
   final Random _rng = Random();
 
   Move pick(List<EngineLine> lines,
-      {required bool weAreWhite, int evalThresholdCp = 300}) {
+      {required bool weAreWhite,
+      int evalThresholdCp = 300,
+      required double blunderChance}) {
     if (lines.isEmpty) throw StateError('no lines');
     final sorted = [...lines]..sort((a, b) => a.multipv.compareTo(b.multipv));
     final top = sorted.first;
@@ -13,7 +15,7 @@ class Humanizer {
 
     if (topEval > evalThresholdCp &&
         sorted.length >= 2 &&
-        _rng.nextDouble() < 0.05) {
+        _rng.nextDouble() < blunderChance) {
       final alt = sorted.skip(1).where((l) {
         final e = _signedEval(l, weAreWhite);
         return (topEval - e).abs() < 80;
@@ -44,10 +46,15 @@ class Humanizer {
     return weAreWhite ? l.scoreCp : -l.scoreCp;
   }
 
-  Duration thinkDelay({required int pieceCount, required bool inCheck}) {
-    var base = 800 + _rng.nextInt(1700);
+  Duration thinkDelay({
+    required int pieceCount,
+    required bool inCheck,
+    required int maxDelayMs,
+  }) {
+    var base = 800 + _rng.nextInt(maxDelayMs > 800 ? maxDelayMs - 800 : 1);
     if (inCheck) base += 400 + _rng.nextInt(800);
     if (pieceCount > 24) base += 200 + _rng.nextInt(600);
+    if (base > maxDelayMs) base = maxDelayMs;
     return Duration(milliseconds: base);
   }
 }

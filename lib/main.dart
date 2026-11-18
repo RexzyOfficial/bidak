@@ -31,6 +31,64 @@ class _BidakAppState extends State<BidakApp> {
     super.dispose();
   }
 
+  void _showSettings() {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Pengaturan Humanisasi',
+                      style: Theme.of(context).textTheme.titleLarge,
+                      textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  Text('Depth Mesin: ${_c.engineDepth}'),
+                  Slider(
+                    value: _c.engineDepth.toDouble(),
+                    min: 6,
+                    max: 14,
+                    divisions: 8,
+                    onChanged: (v) {
+                      setModalState(() => _c.engineDepth = v.round());
+                      _c.updateSettings(_c.engineDepth, _c.blunderChance, _c.maxThinkDelayMs);
+                    },
+                  ),
+                  Text('Peluang Blunder: ${(_c.blunderChance * 100).toStringAsFixed(1)}%'),
+                  Slider(
+                    value: _c.blunderChance,
+                    min: 0,
+                    max: 0.15,
+                    divisions: 15,
+                    onChanged: (v) {
+                      setModalState(() => _c.blunderChance = v);
+                      _c.updateSettings(_c.engineDepth, _c.blunderChance, _c.maxThinkDelayMs);
+                    },
+                  ),
+                  Text('Jeda Maksimal: ${_c.maxThinkDelayMs} ms'),
+                  Slider(
+                    value: _c.maxThinkDelayMs.toDouble(),
+                    min: 1000,
+                    max: 5000,
+                    divisions: 8,
+                    onChanged: (v) {
+                      setModalState(() => _c.maxThinkDelayMs = v.round());
+                      _c.updateSettings(_c.engineDepth, _c.blunderChance, _c.maxThinkDelayMs);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -55,10 +113,7 @@ class _BidakAppState extends State<BidakApp> {
                     Expanded(
                       child: Text(
                         _c.status,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFFFFAB40),
-                        ),
+                        style: const TextStyle(fontSize: 13, color: Color(0xFFFFAB40)),
                       ),
                     ),
                   ],
@@ -68,6 +123,10 @@ class _BidakAppState extends State<BidakApp> {
             },
           ),
           actions: [
+            IconButton(
+              icon: const Icon(Icons.settings),
+              onPressed: _showSettings,
+            ),
             IconButton(icon: const Icon(Icons.flip), onPressed: _c.flip),
             IconButton(icon: const Icon(Icons.undo), onPressed: _c.undo),
             IconButton(icon: const Icon(Icons.refresh), onPressed: _c.reset),
@@ -85,7 +144,7 @@ class _BidakAppState extends State<BidakApp> {
                       _EvalBar(c: _c),
                       Expanded(
                         child: Padding(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Center(
                             child: AspectRatio(
                               aspectRatio: 1,
@@ -94,6 +153,7 @@ class _BidakAppState extends State<BidakApp> {
                           ),
                         ),
                       ),
+                      _MoveHistory(c: _c),
                     ],
                   ),
                 ),
@@ -129,11 +189,7 @@ class _EvalBar extends StatelessWidget {
         borderRadius: BorderRadius.circular(5),
         child: Stack(
           children: [
-            // Background hitam
-            Positioned.fill(
-              child: Container(color: Colors.black),
-            ),
-            // Isi putih dari kiri
+            Positioned.fill(child: Container(color: Colors.black)),
             Positioned.fill(
               child: FractionallySizedBox(
                 alignment: Alignment.centerLeft,
@@ -143,6 +199,68 @@ class _EvalBar extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MoveHistory extends StatelessWidget {
+  final GameController c;
+  const _MoveHistory({required this.c});
+
+  @override
+  Widget build(BuildContext context) {
+    if (c.moveHistory.isEmpty) return const SizedBox(height: 40);
+
+    return Container(
+      height: 40,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black26,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        reverse: true,
+        itemCount: (c.moveHistory.length + 1) ~/ 2,
+        itemBuilder: (context, i) {
+          final idx = c.moveHistory.length - 1 - (i * 2);
+          final bIdx = idx - 1;
+          final wIdx = idx;
+
+          String w = '';
+          String b = '';
+          
+          if (wIdx % 2 == 0) {
+            w = c.moveHistory[wIdx];
+            if (bIdx >= 0) b = c.moveHistory[bIdx];
+          } else {
+            w = c.moveHistory[wIdx];
+            if (bIdx >= 0) b = c.moveHistory[bIdx];
+          }
+
+          // Sesuaikan urutan putih/hitam jika panjang ganjil/genap
+          final moveNum = (wIdx ~/ 2) + 1;
+          final isWhiteMove = wIdx % 2 == 0;
+          
+          String text = '$moveNum. ';
+          if (isWhiteMove) {
+             text += w;
+             if (bIdx >= 0) text += ' $b';
+          } else {
+             text += '... $w';
+          }
+
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                text,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

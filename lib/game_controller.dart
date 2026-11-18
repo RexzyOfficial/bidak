@@ -23,28 +23,37 @@ class GameController extends ChangeNotifier {
   List<EngineLine> lastLines = [];
   String status = '';
   bool gameOver = false;
+  
+  // Settings
+  int engineDepth = 8;
+  double blunderChance = 0.05;
+  int maxThinkDelayMs = 2500;
+
+  List<String> moveHistory = [];
   final List<_Snapshot> _undo = [];
+
+  GameController(this.engine) {
+    reset();
+  }
+
+  void updateSettings(int depth, double blunder, int delay) {
+    engineDepth = depth;
+    blunderChance = blunder;
+    maxThinkDelayMs = delay;
+    notifyListeners();
+  }
 
   double get whiteEvalPercentage {
     if (lastLines.isEmpty) return 0.5;
     final top = lastLines.first;
-    
     if (top.isMate) {
       final mate = top.mateIn;
       final whiteMate = whiteToMove ? mate > 0 : mate < 0;
       return whiteMate ? 1.0 : 0.0;
     }
-    
     final cp = whiteToMove ? top.scoreCp : -top.scoreCp;
     final clamped = cp.clamp(-1000, 1000);
-    
-    // Kurva logistik: 1.0 / (1 + 10^(-cp/400))
     return 1.0 / (1.0 + pow(10, -clamped / 400.0));
-  }
-
-
-  GameController(this.engine) {
-    reset();
   }
 
   void reset() {
@@ -68,6 +77,7 @@ class GameController extends ChangeNotifier {
     lastLines = [];
     status = '';
     gameOver = false;
+    moveHistory = [];
     _undo.clear();
     notifyListeners();
   }
@@ -85,6 +95,7 @@ class GameController extends ChangeNotifier {
     castlingRights = s.castlingRights;
     enPassantSquare = s.enPassantSquare;
     lastMove = s.lastMove;
+    moveHistory = [...s.moveHistory];
     selected = null;
     selectedTargets = {};
     chosenMove = null;
@@ -152,13 +163,76 @@ class GameController extends ChangeNotifier {
     _applyManual(from, to, promotion: piece);
   }
 
+  String _generateSan(int from, int to, {String? promotion}) {
+    final p = board[from];
+    final isWhite = p == p.toUpperCase();
+    final type = p.toLowerCase();
+    final f = from % 8;
+    final r = from ~/ 8;
+    final tF = to % 8;
+    final tR = to ~/ 8;
+    final toSq = '${String.fromCharCode(97 + tF)}${8 - tR}';
+    final isCapture = board[to] != '.' || (type == 'p' && f != tF && board[to] == '.');
+
+    String san = '';
+    if (type == 'k' && (to - from).abs() == 2) {
+      san = to > from ? 'O-O' : 'O-O-O';
+    } else {
+      if (type != 'p') {
+        san += p.toUpperCase();
+        final others = <int>[];
+        for (var i = 0; i < 64; i++) {
+          if (i != from && board[i] == p) {
+            final targets = MoveGen.legalTargets(board, i,
+                castlingRights: castlingRights,
+                enPassantSquare: enPassantSquare);
+            if (targets.contains(to)) others.add(i);
+          }
+        }
+        if (others.isNotEmpty) {
+          final sameFile = others.any((i) => i % 8 == f);
+          if (sameFile) {
+            san += '${String.fromCharCode(97 + f)}${8 - r}';
+          } else {
+            san += String.fromCharCode(97 + f);
+          }
+        }
+      } else if (isCapture) {
+        san += String.fromCharCode(97 + f);
+      }
+
+      if (isCapture) san += 'x';
+      san += toSq;
+      if (promotion != null) san += '=${promotion.toUpperCase()}';
+    }
+
+    final nextBoard = MoveGen.apply(board, from, to, promotion: promotion);
+    final nextWhite = !isWhite;
+    final inCheck = MoveGen.isInCheck(nextBoard, nextWhite);
+    if (inCheck) {
+      bool hasMove = false;
+      for (var i = 0; i < 64; i++) {
+        if (nextBoard[i] != '.' &&
+            (nextBoard[i] == nextBoard[i].toUpperCase()) == nextWhite) {
+          if (MoveGen.legalTargets(nextBoard, i,
+                  castlingRights: '-', enPassantSquare: null)
+              .isNotEmpty) {
+            hasMove = true;
+            break;
+          }
+        }
+      }
+      san += hasMove ? '+' : '#';
+    }
+    return san;
+  }
+
   void _applyManual(int from, int to, {String? promotion}) {
     _pushUndo();
 
     final movedPiece = board[from];
     final isWhite = _isWhitePiece(movedPiece);
     final type = movedPiece.toLowerCase();
-
     final newRights = _updateCastlingRights(from, to, type, isWhite);
 
     int? newEp;
@@ -166,9 +240,12 @@ class GameController extends ChangeNotifier {
       newEp = (from + to) ~/ 2;
     }
 
+    final san = _generateSan(from, to, promotion: promotion);
+
     board = MoveGen.apply(board, from, to, promotion: promotion);
     castlingRights = newRights.isEmpty ? '-' : newRights;
     enPassantSquare = newEp;
+    moveHistory.add(san);
 
     lastMove = Move(from, to, promotion);
     whiteToMove = !whiteToMove;
@@ -234,14 +311,19 @@ class GameController extends ChangeNotifier {
     chosenMove = null;
     notifyListeners();
     try {
-      final lines = await engine.analyse(toFen(), depth: 8);
+      final lines = await engine.analyse(toFen(), depth: engineDepth);
       if (lines.isNotEmpty) {
         lastLines = lines;
-        chosenMove = humanizer.pick(lines, weAreWhite: whiteToMove);
+        chosenMove = humanizer.pick(
+          lines,
+          weAreWhite: whiteToMove,
+          blunderChance: blunderChance,
+        );
         final pieceCount = board.where((p) => p != '.').length;
         final delay = humanizer.thinkDelay(
           pieceCount: pieceCount,
           inCheck: MoveGen.isInCheck(board, whiteToMove),
+          maxDelayMs: maxThinkDelayMs,
         );
         thinking = false;
         notifyListeners();
@@ -262,6 +344,7 @@ class GameController extends ChangeNotifier {
       castlingRights,
       enPassantSquare,
       lastMove,
+      [...moveHistory],
     ));
     if (_undo.length > 200) _undo.removeAt(0);
   }
@@ -303,11 +386,13 @@ class _Snapshot {
   final String castlingRights;
   final int? enPassantSquare;
   final Move? lastMove;
+  final List<String> moveHistory;
   _Snapshot(
     this.board,
     this.whiteToMove,
     this.castlingRights,
     this.enPassantSquare,
     this.lastMove,
+    this.moveHistory,
   );
 }
