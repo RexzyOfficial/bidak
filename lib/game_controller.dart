@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'chess_types.dart';
 import 'humanizer.dart';
@@ -23,6 +24,24 @@ class GameController extends ChangeNotifier {
   String status = '';
   bool gameOver = false;
   final List<_Snapshot> _undo = [];
+
+  double get whiteEvalPercentage {
+    if (lastLines.isEmpty) return 0.5;
+    final top = lastLines.first;
+    
+    if (top.isMate) {
+      final mate = top.mateIn;
+      final whiteMate = whiteToMove ? mate > 0 : mate < 0;
+      return whiteMate ? 1.0 : 0.0;
+    }
+    
+    final cp = whiteToMove ? top.scoreCp : -top.scoreCp;
+    final clamped = cp.clamp(-1000, 1000);
+    
+    // Kurva logistik: 1.0 / (1 + 10^(-cp/400))
+    return 1.0 / (1.0 + pow(10, -clamped / 400.0));
+  }
+
 
   GameController(this.engine) {
     reset();

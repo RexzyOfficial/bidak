@@ -80,14 +80,21 @@ class _BidakAppState extends State<BidakApp> {
               children: [
                 Expanded(
                   flex: 6,
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Center(
-                      child: AspectRatio(
-                        aspectRatio: 1,
-                        child: ChessBoardView(c: _c),
+                  child: Column(
+                    children: [
+                      _EvalBar(c: _c),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Center(
+                            child: AspectRatio(
+                              aspectRatio: 1,
+                              child: ChessBoardView(c: _c),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
                 Expanded(
@@ -97,6 +104,44 @@ class _BidakAppState extends State<BidakApp> {
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _EvalBar extends StatelessWidget {
+  final GameController c;
+  const _EvalBar({required this.c});
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = c.whiteEvalPercentage;
+    return Container(
+      height: 10,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: Colors.white24, width: 1),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(5),
+        child: Stack(
+          children: [
+            // Background hitam
+            Positioned.fill(
+              child: Container(color: Colors.black),
+            ),
+            // Isi putih dari kiri
+            Positioned.fill(
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: pct,
+                child: Container(color: Colors.white),
+              ),
+            ),
+          ],
         ),
       ),
     );
