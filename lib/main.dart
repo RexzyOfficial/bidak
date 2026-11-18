@@ -31,7 +31,7 @@ class _BidakAppState extends State<BidakApp> {
     super.dispose();
   }
 
-  void _showSettings() {
+  void _showSettings(BuildContext context) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -123,9 +123,11 @@ class _BidakAppState extends State<BidakApp> {
             },
           ),
           actions: [
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: _showSettings,
+            Builder(
+              builder: (ctx) => IconButton(
+                icon: const Icon(Icons.settings),
+                onPressed: () => _showSettings(ctx),
+              ),
             ),
             IconButton(icon: const Icon(Icons.flip), onPressed: _c.flip),
             IconButton(icon: const Icon(Icons.undo), onPressed: _c.undo),
@@ -212,6 +214,15 @@ class _MoveHistory extends StatelessWidget {
   Widget build(BuildContext context) {
     if (c.moveHistory.isEmpty) return const SizedBox(height: 40);
 
+    // Gabungkan langkah putih dan hitam per baris (misal: "1. e4 e5")
+    final List<String> items = [];
+    for (int i = 0; i < c.moveHistory.length; i += 2) {
+      final moveNum = (i ~/ 2) + 1;
+      final white = c.moveHistory[i];
+      final black = (i + 1 < c.moveHistory.length) ? c.moveHistory[i + 1] : '';
+      items.add('$moveNum. $white $black');
+    }
+
     return Container(
       height: 40,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -221,41 +232,14 @@ class _MoveHistory extends StatelessWidget {
       ),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        reverse: true,
-        itemCount: (c.moveHistory.length + 1) ~/ 2,
+        reverse: true, // Langkah terbaru di sebelah kiri
+        itemCount: items.length,
         itemBuilder: (context, i) {
-          final idx = c.moveHistory.length - 1 - (i * 2);
-          final bIdx = idx - 1;
-          final wIdx = idx;
-
-          String w = '';
-          String b = '';
-          
-          if (wIdx % 2 == 0) {
-            w = c.moveHistory[wIdx];
-            if (bIdx >= 0) b = c.moveHistory[bIdx];
-          } else {
-            w = c.moveHistory[wIdx];
-            if (bIdx >= 0) b = c.moveHistory[bIdx];
-          }
-
-          // Sesuaikan urutan putih/hitam jika panjang ganjil/genap
-          final moveNum = (wIdx ~/ 2) + 1;
-          final isWhiteMove = wIdx % 2 == 0;
-          
-          String text = '$moveNum. ';
-          if (isWhiteMove) {
-             text += w;
-             if (bIdx >= 0) text += ' $b';
-          } else {
-             text += '... $w';
-          }
-
           return Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                text,
+                items[i],
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
               ),
             ),
