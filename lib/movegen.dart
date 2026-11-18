@@ -276,6 +276,7 @@ class MoveGen {
     final legal = <int>[];
     for (final to in pseudo) {
       if (p.toLowerCase() == 'k' && (to - from).abs() == 2) {
+        if (isInCheck(board, isWhite)) continue;
         final step = to > from ? 1 : -1;
         var blocked = false;
         for (var i = 1; i <= 2; i++) {

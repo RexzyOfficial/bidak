@@ -2,59 +2,62 @@ import 'dart:math';
 import 'chess_types.dart';
 
 class Humanizer {
-  final Random _rng = Random();
-
-  Move pick(List<EngineLine> lines,
-      {required bool weAreWhite,
-      int evalThresholdCp = 300,
-      required double blunderChance}) {
-    if (lines.isEmpty) throw StateError('no lines');
-    final sorted = [...lines]..sort((a, b) => a.multipv.compareTo(b.multipv));
-    final top = sorted.first;
-    final topEval = _signedEval(top, weAreWhite);
-
-    if (topEval > evalThresholdCp &&
-        sorted.length >= 2 &&
-        _rng.nextDouble() < blunderChance) {
-      final alt = sorted.skip(1).where((l) {
-        final e = _signedEval(l, weAreWhite);
-        return (topEval - e).abs() < 80;
-      }).toList();
-      if (alt.isNotEmpty) {
-        return alt[_rng.nextInt(alt.length)].move;
-      }
+  /// Seed stabil dari string (FNV-1a), supaya posisi yang sama
+  /// selalu menghasilkan pilihan yang sama.
+  static int seedFrom(String s) {
+    var h = 0x811C9DC5;
+    for (final c in s.codeUnits) {
+      h ^= c;
+      h = (h * 0x01000193) & 0xFFFFFFFF;
     }
-
-    const weights = [0.60, 0.30, 0.10];
-    final n = min(sorted.length, weights.length);
-    final w = weights.sublist(0, n);
-    final total = w.reduce((a, b) => a + b);
-    var roll = _rng.nextDouble() * total;
-    for (var i = 0; i < n; i++) {
-      roll -= w[i];
-      if (roll <= 0) return sorted[i].move;
-    }
-    return top.move;
+    return h;
   }
 
-  int _signedEval(EngineLine l, bool weAreWhite) {
+  // Skor SELALU dari sudut pandang pihak yang jalan (sama seperti UCI).
+  int _score(EngineLine l) {
     if (l.isMate) {
       final m = l.mateIn;
-      final signed = m > 0 ? 100000 - m * 100 : -100000 - m * 100;
-      return weAreWhite ? signed : -signed;
+      return m > 0 ? 100000 - m : -100000 - m;
     }
-    return weAreWhite ? l.scoreCp : -l.scoreCp;
+    return l.scoreCp;
   }
 
-  Duration thinkDelay({
-    required int pieceCount,
-    required bool inCheck,
-    required int maxDelayMs,
+  Move pick(
+    List<EngineLine> lines, {
+    required double blunderChance,
+    required int seed,
   }) {
-    var base = 800 + _rng.nextInt(maxDelayMs > 800 ? maxDelayMs - 800 : 1);
-    if (inCheck) base += 400 + _rng.nextInt(800);
-    if (pieceCount > 24) base += 200 + _rng.nextInt(600);
-    if (base > maxDelayMs) base = maxDelayMs;
-    return Duration(milliseconds: base);
+    if (lines.isEmpty) throw StateError('no lines');
+    final rng = Random(seed);
+    final sorted = [...lines]..sort((a, b) => a.multipv.compareTo(b.multipv));
+    final top = sorted.first;
+    if (sorted.length < 2) return top.move;
+
+    final topScore = _score(top);
+    // Lagi punya jalur mat: selalu ambil yang terbaik.
+    if (topScore > 90000) return top.move;
+
+    // Kesalahan manusiawi: langkah ke-2/ke-3 yang lebih lemah 40-150 cp.
+    if (rng.nextDouble() < blunderChance) {
+      final cands = sorted.skip(1).where((l) {
+        final s = _score(l);
+        if (s.abs() > 90000) return false; // jangan pilih jalur mat
+        final gap = topScore - s;
+        if (gap < 40 || gap > 150) return false;
+        if (s < -150 && topScore >= -150) return false;
+        return true;
+      }).toList();
+      if (cands.isNotEmpty) return cands[rng.nextInt(cands.length)].move;
+    }
+
+    // Variasi natural: kadang pilih langkah yang nyaris setara (<=25 cp).
+    final near = sorted.skip(1).where((l) {
+      final s = _score(l);
+      return s.abs() <= 90000 && topScore - s <= 25;
+    }).toList();
+    if (near.isNotEmpty && rng.nextDouble() < 0.35) {
+      return near[rng.nextInt(near.length)].move;
+    }
+    return top.move;
   }
 }

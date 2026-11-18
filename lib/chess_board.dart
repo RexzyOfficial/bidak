@@ -66,7 +66,10 @@ class ChessBoardView extends StatelessWidget {
             final local = d.localPosition;
             var f = (local.dx / sq).floor().clamp(0, 7);
             var r = (local.dy / sq).floor().clamp(0, 7);
-            if (c.flipped) { f = 7 - f; r = 7 - r; }
+            if (c.flipped) {
+              f = 7 - f;
+              r = 7 - r;
+            }
             _onTap(context, r * 8 + f);
           },
           child: Stack(
@@ -91,6 +94,12 @@ class ChessBoardView extends StatelessWidget {
                       ),
                     ),
                   ),
+              // Panah di atas bidak
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(painter: _ArrowPainter(c, sq)),
+                ),
+              ),
             ],
           ),
         ),
@@ -107,7 +116,10 @@ class _BoardPainter extends CustomPainter {
   Offset _center(int idx) {
     var f = idx % 8;
     var r = idx ~/ 8;
-    if (c.flipped) { f = 7 - f; r = 7 - r; }
+    if (c.flipped) {
+      f = 7 - f;
+      r = 7 - r;
+    }
     return Offset(f * sq + sq / 2, r * sq + sq / 2);
   }
 
@@ -162,66 +174,104 @@ class _BoardPainter extends CustomPainter {
         );
       }
     }
-
-    if (c.lastLines.isNotEmpty) {
-      final sorted = [...c.lastLines]
-        ..sort((a, b) => b.multipv.compareTo(a.multipv));
-      for (final line in sorted) {
-        final isChosen =
-            c.chosenMove != null && line.move.toUci() == c.chosenMove!.toUci();
-        final color = isChosen ? const Color(0xFFF5B301) : const Color(0xFF90A4AE);
-        final scale = isChosen ? 1.0 : 0.65;
-        final opacity = isChosen ? 0.9 : 0.5;
-        _drawArrow(
-          canvas,
-          _center(line.move.from),
-          _center(line.move.to),
-          color.withOpacity(opacity),
-          sq,
-          scale,
-        );
-      }
-    }
-  }
-
-  void _drawArrow(Canvas canvas, Offset from, Offset to, Color color,
-      double sq, double scale) {
-    final dir = to - from;
-    final len = dir.distance;
-    if (len < 1) return;
-    final unit = dir / len;
-    final start = from + unit * (sq * 0.30);
-    final end = to - unit * (sq * 0.34);
-    final stroke = sq * 0.12 * scale;
-
-    canvas.drawLine(
-      start,
-      end,
-      Paint()
-        ..color = color
-        ..strokeWidth = stroke
-        ..strokeCap = StrokeCap.round,
-    );
-
-    final headLen = sq * 0.30 * scale;
-    final headWidth = sq * 0.22 * scale;
-    final perp = Offset(-unit.dy, unit.dx);
-    final p1 = end;
-    final p2 = end - unit * headLen + perp * headWidth;
-    final p3 = end - unit * headLen - perp * headWidth;
-    final path = Path()
-      ..moveTo(p1.dx, p1.dy)
-      ..lineTo(p2.dx, p2.dy)
-      ..lineTo(p3.dx, p3.dy)
-      ..close();
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.fill,
-    );
   }
 
   @override
   bool shouldRepaint(covariant _BoardPainter old) => true;
+}
+
+class _ArrowPainter extends CustomPainter {
+  final GameController c;
+  final double sq;
+  _ArrowPainter(this.c, this.sq) : super(repaint: c);
+
+  static const _gold = Color(0xF2F5B301);
+  static const _black = Color(0xF2111111);
+  static const _grey = Color(0xE69E9E9E);
+  static const _whiteEdge = Color(0xCCFFFFFF);
+  static const _darkEdge = Color(0x66000000);
+
+  Offset _center(int idx) {
+    var f = idx % 8;
+    var r = idx ~/ 8;
+    if (c.flipped) {
+      f = 7 - f;
+      r = 7 - r;
+    }
+    return Offset(f * sq + sq / 2, r * sq + sq / 2);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final chosen = c.chosenMove;
+    final chosenUci = chosen?.toUci();
+    final others = c.lastLines
+        .where((l) => l.move.toUci() != chosenUci)
+        .toList()
+      ..sort((a, b) => a.multipv.compareTo(b.multipv));
+
+    // Urutan gambar: abu-abu (paling bawah), hitam, lalu gold di atas.
+    if (others.length > 1) {
+      _arrow(canvas, others[1].move.from, others[1].move.to, _grey, _darkEdge, 0.7);
+    }
+    if (others.isNotEmpty) {
+      _arrow(canvas, others[0].move.from, others[0].move.to, _black, _whiteEdge, 0.85);
+    }
+    if (chosen != null) {
+      _arrow(canvas, chosen.from, chosen.to, _gold, null, 1.0);
+    }
+  }
+
+  void _arrow(Canvas canvas, int fromIdx, int toIdx, Color fill, Color? edge,
+      double scale) {
+    final from = _center(fromIdx);
+    final to = _center(toIdx);
+    final dir = to - from;
+    final len = dir.distance;
+    if (len < 1) return;
+    final u = dir / len;
+    final perp = Offset(-u.dy, u.dx);
+
+    final start = from + u * (sq * 0.28);
+    final tip = to - u * (sq * 0.18);
+    final shaftHalf = sq * 0.065 * scale;
+    final headLen = sq * 0.34 * scale;
+    final headHalf = sq * 0.27 * scale;
+    final neck = tip - u * headLen;
+
+    final pts = <Offset>[
+      start + perp * shaftHalf,
+      neck + perp * shaftHalf,
+      neck + perp * headHalf,
+      tip,
+      neck - perp * headHalf,
+      neck - perp * shaftHalf,
+      start - perp * shaftHalf,
+    ];
+    final path = Path()..moveTo(pts[0].dx, pts[0].dy);
+    for (var i = 1; i < pts.length; i++) {
+      path.lineTo(pts[i].dx, pts[i].dy);
+    }
+    path.close();
+
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = fill
+        ..style = PaintingStyle.fill,
+    );
+    if (edge != null) {
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = edge
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = sq * 0.035
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ArrowPainter old) => true;
 }

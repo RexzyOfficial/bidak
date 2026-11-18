@@ -1,12 +1,31 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -e
 mkdir -p assets/book
-if [ ! -f assets/book/openings.tsv ]; then
-  echo "[get ] openings.tsv (~3MB)"
-  wget -q --show-progress -O assets/book/openings.tsv \
-    "https://raw.githubusercontent.com/lichess-org/chess-openings/master/dist/openings.tsv"
-else
-  echo "[skip] openings.tsv sudah ada"
+OUT=assets/book/openings.tsv
+
+if [ -s "$OUT" ] && [ "$(wc -l < "$OUT")" -gt 100 ]; then
+  echo "[skip] openings.tsv sudah ada ($(wc -l < "$OUT") baris)"
+  exit 0
 fi
-echo "Selesai. Cek:"
-ls -lh assets/book/openings.tsv
+rm -f "$OUT"
+
+BASE="https://raw.githubusercontent.com/lichess-org/chess-openings/master"
+TMP=$(mktemp)
+first=1
+for f in a b c d e; do
+  echo "[get ] $f.tsv"
+  if ! wget -q -O "$TMP" "$BASE/$f.tsv"; then
+    echo "[gagal] $f.tsv - cek koneksi / URL"
+    rm -f "$TMP" "$OUT"
+    exit 1
+  fi
+  if [ "$first" = 1 ]; then
+    cat "$TMP" > "$OUT"
+    first=0
+  else
+    tail -n +2 "$TMP" >> "$OUT"
+  fi
+done
+rm -f "$TMP"
+echo "Selesai: $(wc -l < "$OUT") baris"
+ls -lh "$OUT"

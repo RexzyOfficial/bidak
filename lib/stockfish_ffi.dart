@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
-import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 import 'chess_types.dart';
 
@@ -15,6 +14,9 @@ typedef _SfQuitC = Void Function();
 typedef _SfQuitD = void Function();
 
 class StockfishFfi {
+  static const int multiPv = 3;
+  static const int _bufSize = 8192;
+
   DynamicLibrary? _lib;
   late final _SfInitD _init;
   late final _SfCmdD _cmd;
@@ -25,12 +27,16 @@ class StockfishFfi {
   bool get isInited => _inited;
 
   Timer? _pumpTimer;
-  final StreamController<List<EngineLine>> _out =
-      StreamController<List<EngineLine>>.broadcast();
-  final StreamController<String> _raw = StreamController<String>.broadcast();
+  Pointer<Utf8>? _buf;
 
-  Stream<List<EngineLine>> get lines => _out.stream;
+  final StreamController<String> _raw = StreamController<String>.broadcast();
   Stream<String> get rawLines => _raw.stream;
+
+  final Map<int, EngineLine> _acc = {};
+  Completer<List<EngineLine>>? _result;
+  Completer<void>? _idle; // selesai saat 'bestmove' datang
+  int _reqSeq = 0;
+  Future<void> _lock = Future.value();
 
   Future<void> init({String nnuePath = ''}) async {
     if (_inited) return;
@@ -48,10 +54,12 @@ class StockfishFfi {
       malloc.free(p);
     }
 
+    _buf = malloc<Uint8>(_bufSize).cast<Utf8>();
+
     _send('uci');
     _send('setoption name Threads value 1');
     _send('setoption name Hash value 16');
-    _send('setoption name MultiPV value 3');
+    _send('setoption name MultiPV value $multiPv');
     _send('isready');
 
     _inited = true;
@@ -62,9 +70,7 @@ class StockfishFfi {
     final p = cmd.toNativeUtf8();
     try {
       final rc = _cmd(p);
-      if (rc != 0) {
-        _raw.add('[send rc=$rc] $cmd');
-      }
+      if (rc != 0) _raw.add('[send rc=$rc] $cmd');
     } finally {
       malloc.free(p);
     }
@@ -72,30 +78,35 @@ class StockfishFfi {
 
   void _pump() {
     _pumpTimer?.cancel();
-    _pumpTimer = Timer.periodic(const Duration(milliseconds: 4), (_) {
-      final buf = malloc<Uint8>(8192);
-      try {
-        final n = _read(buf.cast<Utf8>(), 8192);
-        if (n > 0) {
-          final chunk = buf.cast<Utf8>().toDartString(length: n);
+    _pumpTimer = Timer.periodic(const Duration(milliseconds: 10), (_) {
+      final buf = _buf;
+      if (buf == null) return;
+      for (var k = 0; k < 64; k++) {
+        final n = _read(buf, _bufSize);
+        if (n == 0 || n == -1) break;
+        if (n < 0) {
+          _raw.add('[read rc=$n]');
+          break;
+        }
+        try {
+          final chunk = buf.toDartString(length: n);
           for (final l in const LineSplitter().convert(chunk)) {
             if (l.trim().isEmpty) continue;
             _raw.add(l);
             _handleLine(l);
           }
-        } else if (n < 0 && n != -1) {
-          _raw.add('[read rc=$n]');
-        }
-      } finally {
-        malloc.free(buf);
+        } catch (_) {}
       }
     });
   }
 
-  final Map<int, EngineLine> _acc = {};
-
   void _handleLine(String line) {
-    if (line.startsWith('info') && line.contains(' pv ')) {
+    if (line.startsWith('info')) {
+      if (!line.contains(' pv ') ||
+          line.contains('lowerbound') ||
+          line.contains('upperbound')) {
+        return;
+      }
       final mpv = _intAfter(line, 'multipv') ?? 1;
       final depth = _intAfter(line, 'depth') ?? 0;
       final cp = _intAfter(line, 'score cp');
@@ -116,7 +127,10 @@ class StockfishFfi {
       final list = _acc.values.toList()
         ..sort((a, b) => a.multipv.compareTo(b.multipv));
       _acc.clear();
-      if (list.isNotEmpty) _out.add(list);
+      final idle = _idle;
+      if (idle != null && !idle.isCompleted) idle.complete();
+      final res = _result;
+      if (res != null && !res.isCompleted) res.complete(list);
     }
   }
 
@@ -128,20 +142,54 @@ class StockfishFfi {
     return m == null ? null : int.parse(m.group(0)!);
   }
 
-  Future<List<EngineLine>> analyse(String fen, {int depth = 6}) async {
-    final completer = Completer<List<EngineLine>>();
-    late StreamSubscription sub;
-    sub = _out.stream.listen((lines) {
-      if (!completer.isCompleted) completer.complete(lines);
-      sub.cancel();
-    });
-    _send('position fen $fen');
+  void _abortRunning() {
+    final idle = _idle;
+    if (idle != null && !idle.isCompleted) _send('stop');
+  }
+
+  /// Hentikan analisis yang sedang jalan (aman dipanggil kapan saja).
+  void stop() => _abortRunning();
+
+  /// Analisis posisi hasil dari startpos + daftar langkah UCI.
+  /// Panggilan baru otomatis membatalkan yang lama.
+  Future<List<EngineLine>> analyse(List<String> uciMoves,
+      {required int depth}) {
+    final id = ++_reqSeq;
+    final prev = _lock;
+    final done = Completer<void>();
+    _lock = done.future;
+    _abortRunning();
+
+    return () async {
+      try {
+        await prev;
+        if (id != _reqSeq) return <EngineLine>[]; // sudah digantikan
+        return await _run(uciMoves, depth);
+      } finally {
+        done.complete();
+      }
+    }();
+  }
+
+  Future<List<EngineLine>> _run(List<String> uciMoves, int depth) {
+    _acc.clear();
+    final result = Completer<List<EngineLine>>();
+    final idle = Completer<void>();
+    _result = result;
+    _idle = idle;
+
+    _send('ucinewgame');
+    _send(uciMoves.isEmpty
+        ? 'position startpos'
+        : 'position startpos moves ${uciMoves.join(' ')}');
     _send('go depth $depth');
-    return completer.future.timeout(
-      const Duration(seconds: 15),
-      onTimeout: () {
-        sub.cancel();
+
+    return result.future.timeout(
+      const Duration(seconds: 20),
+      onTimeout: () async {
         _send('stop');
+        await idle.future
+            .timeout(const Duration(seconds: 3), onTimeout: () {});
         return <EngineLine>[];
       },
     );
@@ -149,10 +197,16 @@ class StockfishFfi {
 
   void dispose() {
     _pumpTimer?.cancel();
-    try {
-      _quit();
-    } catch (_) {}
-    _out.close();
+    if (_inited) {
+      try {
+        _quit();
+      } catch (_) {}
+    }
+    final b = _buf;
+    if (b != null) {
+      malloc.free(b);
+      _buf = null;
+    }
     _raw.close();
   }
 }

@@ -86,3 +86,7 @@ set_target_properties(stockfish PROPERTIES
 )
 
 target_link_libraries(stockfish PRIVATE log atomic)
+
+if (ANDROID_ABI STREQUAL "arm64-v8a")
+  target_compile_definitions(stockfish PRIVATE IS_64BIT USE_NEON=8)
+endif()

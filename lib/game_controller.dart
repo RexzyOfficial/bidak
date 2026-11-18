@@ -1,15 +1,20 @@
+import 'dart:ffi' show Abi;
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'chess_types.dart';
 import 'humanizer.dart';
 import 'movegen.dart';
 import 'opening_book.dart';
+import 'san.dart';
 import 'stockfish_ffi.dart';
 
 class GameController extends ChangeNotifier {
   final StockfishFfi engine;
   final Humanizer humanizer = Humanizer();
   final OpeningBook book = OpeningBook();
+
+  // armv7 (SF11, HP lama) lebih ringan; arm64 (SF16 + NNUE) lebih dalam.
+  static final int engineDepth = Abi.current() == Abi.androidArm ? 10 : 12;
 
   List<String> board = List.filled(64, '.');
   bool whiteToMove = true;
@@ -27,38 +32,63 @@ class GameController extends ChangeNotifier {
   bool gameOver = false;
   bool fromBook = false;
 
-  int engineDepth = 8;
   double blunderChance = 0.05;
-  int maxThinkDelayMs = 2500;
+
+  // Eval dari sudut pandang Putih.
+  double evalFraction = 0.5;
+  String evalText = '0.0';
 
   List<String> moveHistory = [];
+  List<String> uciHistory = [];
   final List<_Snapshot> _undo = [];
+
+  int _gen = 0;
+  bool _disposed = false;
 
   GameController(this.engine) {
     reset();
   }
 
-  void updateSettings(int depth, double blunder, int delay) {
-    engineDepth = depth;
-    blunderChance = blunder;
-    maxThinkDelayMs = delay;
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  void setBlunderChance(double v) {
+    blunderChance = v;
     notifyListeners();
   }
 
-  double get whiteEvalPercentage {
-    if (lastLines.isEmpty) return 0.5;
-    final top = lastLines.first;
+  double get whiteEvalPercentage => evalFraction;
+
+  void _updateEval(List<EngineLine> lines) {
+    final top = lines.first;
     if (top.isMate) {
-      final mate = top.mateIn;
-      final whiteMate = whiteToMove ? mate > 0 : mate < 0;
-      return whiteMate ? 1.0 : 0.0;
+      final whiteMates = whiteToMove ? top.mateIn > 0 : top.mateIn < 0;
+      evalFraction = whiteMates ? 1.0 : 0.0;
+      evalText = '${whiteMates ? '' : '-'}M${top.mateIn.abs()}';
+      return;
     }
     final cp = whiteToMove ? top.scoreCp : -top.scoreCp;
     final clamped = cp.clamp(-1000, 1000);
-    return 1.0 / (1.0 + pow(10, -clamped / 400.0));
+    evalFraction = 1.0 / (1.0 + pow(10, -clamped / 400.0));
+    evalText = '${cp > 0 ? '+' : ''}${(cp / 100).toStringAsFixed(1)}';
+  }
+
+  void _cancelAnalysis() {
+    _gen++;
+    engine.stop();
+    thinking = false;
   }
 
   void reset() {
+    _cancelAnalysis();
     board = List.filled(64, '.');
     const back = ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'];
     for (var f = 0; f < 8; f++) {
@@ -75,12 +105,14 @@ class GameController extends ChangeNotifier {
     selectedTargets = {};
     lastMove = null;
     chosenMove = null;
-    thinking = false;
     lastLines = [];
     status = '';
     gameOver = false;
     fromBook = false;
+    evalFraction = 0.5;
+    evalText = '0.0';
     moveHistory = [];
+    uciHistory = [];
     _undo.clear();
     notifyListeners();
   }
@@ -92,6 +124,7 @@ class GameController extends ChangeNotifier {
 
   void undo() {
     if (_undo.isEmpty) return;
+    _cancelAnalysis();
     final s = _undo.removeLast();
     board = [...s.board];
     whiteToMove = s.whiteToMove;
@@ -99,10 +132,13 @@ class GameController extends ChangeNotifier {
     enPassantSquare = s.enPassantSquare;
     lastMove = s.lastMove;
     moveHistory = [...s.moveHistory];
+    uciHistory = [...s.uciHistory];
     selected = null;
     selectedTargets = {};
     chosenMove = null;
     lastLines = [];
+    evalFraction = 0.5;
+    evalText = '0.0';
     status = '';
     gameOver = false;
     fromBook = false;
@@ -119,7 +155,7 @@ class GameController extends ChangeNotifier {
   bool _isWhitePiece(String p) => p != '.' && p == p.toUpperCase();
 
   void select(int idx) {
-    if (thinking || gameOver) return;
+    if (gameOver) return;
     final p = board[idx];
 
     if (selected == null) {
@@ -167,71 +203,8 @@ class GameController extends ChangeNotifier {
     _applyManual(from, to, promotion: piece);
   }
 
-  String _generateSan(int from, int to, {String? promotion}) {
-    final p = board[from];
-    final isWhite = p == p.toUpperCase();
-    final type = p.toLowerCase();
-    final f = from % 8;
-    final r = from ~/ 8;
-    final tF = to % 8;
-    final tR = to ~/ 8;
-    final toSq = '${String.fromCharCode(97 + tF)}${8 - tR}';
-    final isCapture = board[to] != '.' || (type == 'p' && f != tF && board[to] == '.');
-
-    String san = '';
-    if (type == 'k' && (to - from).abs() == 2) {
-      san = to > from ? 'O-O' : 'O-O-O';
-    } else {
-      if (type != 'p') {
-        san += p.toUpperCase();
-        final others = <int>[];
-        for (var i = 0; i < 64; i++) {
-          if (i != from && board[i] == p) {
-            final targets = MoveGen.legalTargets(board, i,
-                castlingRights: castlingRights,
-                enPassantSquare: enPassantSquare);
-            if (targets.contains(to)) others.add(i);
-          }
-        }
-        if (others.isNotEmpty) {
-          final sameFile = others.any((i) => i % 8 == f);
-          if (sameFile) {
-            san += '${String.fromCharCode(97 + f)}${8 - r}';
-          } else {
-            san += String.fromCharCode(97 + f);
-          }
-        }
-      } else if (isCapture) {
-        san += String.fromCharCode(97 + f);
-      }
-
-      if (isCapture) san += 'x';
-      san += toSq;
-      if (promotion != null) san += '=${promotion.toUpperCase()}';
-    }
-
-    final nextBoard = MoveGen.apply(board, from, to, promotion: promotion);
-    final nextWhite = !isWhite;
-    final inCheck = MoveGen.isInCheck(nextBoard, nextWhite);
-    if (inCheck) {
-      bool hasMove = false;
-      for (var i = 0; i < 64; i++) {
-        if (nextBoard[i] != '.' &&
-            (nextBoard[i] == nextBoard[i].toUpperCase()) == nextWhite) {
-          if (MoveGen.legalTargets(nextBoard, i,
-                  castlingRights: '-', enPassantSquare: null)
-              .isNotEmpty) {
-            hasMove = true;
-            break;
-          }
-        }
-      }
-      san += hasMove ? '+' : '#';
-    }
-    return san;
-  }
-
   void _applyManual(int from, int to, {String? promotion}) {
+    _cancelAnalysis();
     _pushUndo();
 
     final movedPiece = board[from];
@@ -244,19 +217,28 @@ class GameController extends ChangeNotifier {
       newEp = (from + to) ~/ 2;
     }
 
-    final san = _generateSan(from, to, promotion: promotion);
+    final san = San.generate(
+      board,
+      from,
+      to,
+      promotion: promotion,
+      castlingRights: castlingRights,
+      enPassantSquare: enPassantSquare,
+    );
 
     board = MoveGen.apply(board, from, to, promotion: promotion);
     castlingRights = newRights.isEmpty ? '-' : newRights;
     enPassantSquare = newEp;
     moveHistory.add(san);
+    uciHistory.add(Move(from, to, promotion).toUci());
 
     lastMove = Move(from, to, promotion);
     whiteToMove = !whiteToMove;
     selected = null;
     selectedTargets = {};
     chosenMove = null;
-    notifyListeners();
+    lastLines = [];
+    fromBook = false;
 
     final inCheck = MoveGen.isInCheck(board, whiteToMove);
     final hasLegal = _hasAnyLegalMove();
@@ -309,7 +291,8 @@ class GameController extends ChangeNotifier {
   }
 
   Future<void> _advise() async {
-    if (!engineReady || thinking) return;
+    if (!engineReady) return;
+    final gen = ++_gen;
     thinking = true;
     lastLines = [];
     chosenMove = null;
@@ -317,44 +300,46 @@ class GameController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // 1. Cek Opening Book (maksimal 15 langkah / 7.5 putaran)
-      if (moveHistory.length < 15) {
-        final bookMove = book.getMove(moveHistory, board);
+      final fen = toFen();
+      final seed = Humanizer.seedFrom(fen);
+
+      // 1. Opening book
+      if (moveHistory.length < 16) {
+        final bookMove = book.getMove(
+          moveHistory,
+          board,
+          whiteToMove: whiteToMove,
+          castlingRights: castlingRights,
+          enPassantSquare: enPassantSquare,
+          rng: Random(seed),
+        );
         if (bookMove != null) {
+          if (gen != _gen) return;
           chosenMove = bookMove;
           fromBook = true;
-          thinking = false;
-          notifyListeners();
-          // Jeda pikir singkat untuk buku
-          await Future.delayed(Duration(milliseconds: 500 + Random().nextInt(800)));
           return;
         }
       }
 
-      // 2. Jika tidak ada di buku, panggil Stockfish
-      final lines = await engine.analyse(toFen(), depth: engineDepth);
+      // 2. Stockfish
+      final lines = await engine.analyse(uciHistory, depth: engineDepth);
+      if (gen != _gen) return;
       if (lines.isNotEmpty) {
         lastLines = lines;
+        _updateEval(lines);
         chosenMove = humanizer.pick(
           lines,
-          weAreWhite: whiteToMove,
           blunderChance: blunderChance,
+          seed: seed,
         );
-        final pieceCount = board.where((p) => p != '.').length;
-        final delay = humanizer.thinkDelay(
-          pieceCount: pieceCount,
-          inCheck: MoveGen.isInCheck(board, whiteToMove),
-          maxDelayMs: maxThinkDelayMs,
-        );
-        thinking = false;
-        notifyListeners();
-        await Future.delayed(delay);
       }
     } catch (_) {
-      lastLines = [];
+      if (gen == _gen) lastLines = [];
     } finally {
-      thinking = false;
-      notifyListeners();
+      if (gen == _gen) {
+        thinking = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -366,6 +351,7 @@ class GameController extends ChangeNotifier {
       enPassantSquare,
       lastMove,
       [...moveHistory],
+      [...uciHistory],
     ));
     if (_undo.length > 200) _undo.removeAt(0);
   }
@@ -379,7 +365,10 @@ class GameController extends ChangeNotifier {
         if (p == '.') {
           empty++;
         } else {
-          if (empty > 0) { sb.write(empty); empty = 0; }
+          if (empty > 0) {
+            sb.write(empty);
+            empty = 0;
+          }
           sb.write(p);
         }
       }
@@ -408,6 +397,7 @@ class _Snapshot {
   final int? enPassantSquare;
   final Move? lastMove;
   final List<String> moveHistory;
+  final List<String> uciHistory;
   _Snapshot(
     this.board,
     this.whiteToMove,
@@ -415,5 +405,6 @@ class _Snapshot {
     this.enPassantSquare,
     this.lastMove,
     this.moveHistory,
+    this.uciHistory,
   );
 }
