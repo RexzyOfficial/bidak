@@ -37,17 +37,25 @@ class Humanizer {
     // Lagi punya jalur mat: selalu ambil yang terbaik.
     if (topScore > 90000) return top.move;
 
-    // Kesalahan manusiawi: langkah ke-2/ke-3 yang lebih lemah 40-150 cp.
+    // Kesalahan manusiawi. Coba rentang selisih berurutan:
+    // 40-150 cp, lalu 15-39 cp (lebih ringan), lalu 151-250 cp (lebih parah).
     if (rng.nextDouble() < blunderChance) {
-      final cands = sorted.skip(1).where((l) {
-        final s = _score(l);
-        if (s.abs() > 90000) return false; // jangan pilih jalur mat
-        final gap = topScore - s;
-        if (gap < 40 || gap > 150) return false;
-        if (s < -150 && topScore >= -150) return false;
-        return true;
-      }).toList();
-      if (cands.isNotEmpty) return cands[rng.nextInt(cands.length)].move;
+      for (final t in const [
+        [40, 150],
+        [15, 39],
+        [151, 250],
+      ]) {
+        final cands = sorted.skip(1).where((l) {
+          final s = _score(l);
+          if (s.abs() > 90000) return false; // jangan pilih jalur mat
+          final gap = topScore - s;
+          if (gap < t[0] || gap > t[1]) return false;
+          // jangan jatuhkan posisi yang masih oke jadi buruk
+          if (s < -150 && topScore >= -150) return false;
+          return true;
+        }).toList();
+        if (cands.isNotEmpty) return cands[rng.nextInt(cands.length)].move;
+      }
     }
 
     // Variasi natural: kadang pilih langkah yang nyaris setara (<=25 cp).

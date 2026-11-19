@@ -20,6 +20,7 @@ class _BidakAppState extends State<BidakApp> {
   @override
   void initState() {
     super.initState();
+    _c.loadSettings();
     _c.initEngine().catchError((e) {
       debugPrint('engine init gagal: $e');
     });
@@ -55,15 +56,16 @@ class _BidakAppState extends State<BidakApp> {
                     Slider(
                       value: _c.blunderChance,
                       min: 0,
-                      max: 0.15,
-                      divisions: 15,
+                      max: GameController.maxBlunder,
+                      divisions: 25,
                       onChanged: (v) {
                         setModalState(() {});
                         _c.setBlunderChance(v);
                       },
+                      onChangeEnd: (_) => _c.saveSettings(),
                     ),
                     const Text(
-                      'Kadang memilih langkah ke-2 atau ke-3 yang sedikit lebih lemah. 0% = selalu langkah terbaik.',
+                      'Kadang sengaja memilih langkah ke-2 atau ke-3 yang lebih lemah. Makin tinggi, makin sering dan makin parah. 0% = selalu langkah terbaik.',
                       style: TextStyle(fontSize: 12, color: Colors.white54),
                     ),
                   ],
@@ -269,6 +271,13 @@ class _InfoRow extends StatelessWidget {
           SizedBox(width: 6),
           Text('opening book', style: small),
         ],
+      );
+    } else if (c.isMistake) {
+      status = Text(
+        'blunder #${c.chosenRank} (-${(c.chosenLoss / 100).toStringAsFixed(1)})',
+        style: const TextStyle(fontSize: 12, color: Color(0xFFFFAB40)),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
       );
     } else if (c.moveHistory.isEmpty && !c.gameOver) {
       status = const Text(

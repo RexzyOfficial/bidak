@@ -1,6 +1,7 @@
 import 'dart:ffi' show Abi;
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'chess_types.dart';
 import 'humanizer.dart';
 import 'movegen.dart';
@@ -33,6 +34,12 @@ class GameController extends ChangeNotifier {
   bool fromBook = false;
 
   double blunderChance = 0.05;
+  static const double maxBlunder = 0.25;
+  static const String _kBlunder = 'blunder_chance';
+
+  // Posisi langkah terpilih dibanding terbaik (untuk penanda blunder).
+  int chosenRank = 1;
+  int chosenLoss = 0; // dalam cp
 
   // Eval dari sudut pandang Putih.
   double evalFraction = 0.5;
@@ -67,6 +74,40 @@ class GameController extends ChangeNotifier {
 
   double get whiteEvalPercentage => evalFraction;
 
+  Future<void> loadSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final v = prefs.getDouble(_kBlunder);
+      if (v != null) {
+        blunderChance = v.clamp(0.0, maxBlunder).toDouble();
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> saveSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_kBlunder, blunderChance);
+    } catch (_) {}
+  }
+
+  bool get isMistake =>
+      chosenMove != null && !fromBook && chosenRank > 1 && chosenLoss >= 30;
+
+  void _noteMistake(List<EngineLine> lines, Move picked) {
+    chosenRank = 1;
+    chosenLoss = 0;
+    final top = lines.first;
+    for (final l in lines) {
+      if (l.move.toUci() == picked.toUci()) {
+        chosenRank = l.multipv;
+        if (!top.isMate && !l.isMate) chosenLoss = top.scoreCp - l.scoreCp;
+        break;
+      }
+    }
+  }
+
   void _updateEval(List<EngineLine> lines) {
     final top = lines.first;
     if (top.isMate) {
@@ -78,7 +119,9 @@ class GameController extends ChangeNotifier {
     final cp = whiteToMove ? top.scoreCp : -top.scoreCp;
     final clamped = cp.clamp(-1000, 1000);
     evalFraction = 1.0 / (1.0 + pow(10, -clamped / 400.0));
-    evalText = '${cp > 0 ? '+' : ''}${(cp / 100).toStringAsFixed(1)}';
+    evalText = cp.abs() < 5
+        ? '0.0'
+        : '${cp > 0 ? '+' : ''}${(cp / 100).toStringAsFixed(1)}';
   }
 
   void _cancelAnalysis() {
@@ -297,6 +340,8 @@ class GameController extends ChangeNotifier {
     lastLines = [];
     chosenMove = null;
     fromBook = false;
+    chosenRank = 1;
+    chosenLoss = 0;
     notifyListeners();
 
     try {
@@ -328,11 +373,13 @@ class GameController extends ChangeNotifier {
         lastLines = lines;
         _updateEval(lines);
         if (bookMove == null) {
-          chosenMove = humanizer.pick(
+          final picked = humanizer.pick(
             lines,
             blunderChance: blunderChance,
             seed: seed,
           );
+          chosenMove = picked;
+          _noteMistake(lines, picked);
         }
       }
     } catch (_) {
