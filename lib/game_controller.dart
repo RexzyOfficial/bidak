@@ -305,9 +305,9 @@ class GameController extends ChangeNotifier {
 
       // 1. Opening book: langkah gold langsung tampil.
       Move? bookMove;
-      if (moveHistory.length < 16) {
+      if (moveHistory.length < 40) {
         bookMove = book.getMove(
-          moveHistory,
+          fen,
           board,
           whiteToMove: whiteToMove,
           castlingRights: castlingRights,
