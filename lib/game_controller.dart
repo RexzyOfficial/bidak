@@ -191,7 +191,15 @@ class GameController extends ChangeNotifier {
     status = '';
     gameOver = false;
     fromBook = false;
+    if (MoveGen.isInCheck(board, whiteToMove)) {
+      status = whiteToMove ? 'Skak untuk Putih.' : 'Skak untuk Hitam.';
+    }
+    final claim = _claimableDraw();
+    if (claim != null) {
+      status = status.isEmpty ? claim : '$status  $claim';
+    }
     notifyListeners();
+    if (moveHistory.isNotEmpty) _advise();
   }
 
   Future<void> initEngine() async {
