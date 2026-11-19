@@ -39,7 +39,8 @@ class Humanizer {
 
     // Kesalahan manusiawi. Coba rentang selisih berurutan:
     // 40-150 cp, lalu 15-39 cp (lebih ringan), lalu 151-250 cp (lebih parah).
-    if (rng.nextDouble() < blunderChance) {
+    // Sisi yang sudah tertinggal (< -1.5) tidak boleh blunder lagi.
+    if (rng.nextDouble() < blunderChance && topScore >= -150) {
       for (final t in const [
         [40, 150],
         [15, 39],
