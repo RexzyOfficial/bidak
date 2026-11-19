@@ -32,6 +32,8 @@ class GameController extends ChangeNotifier {
   String status = '';
   bool gameOver = false;
   bool fromBook = false;
+  int halfmoveClock = 0; // setengah-langkah sejak tangkapan / gerak pion
+  List<String> posKeys = []; // kunci tiap posisi, untuk hitung repetisi
 
   double blunderChance = 0.05;
   static const double maxBlunder = 0.25;
@@ -156,6 +158,8 @@ class GameController extends ChangeNotifier {
     evalText = '0.0';
     moveHistory = [];
     uciHistory = [];
+    halfmoveClock = 0;
+    posKeys = [_posKey()];
     _undo.clear();
     notifyListeners();
   }
@@ -176,6 +180,8 @@ class GameController extends ChangeNotifier {
     lastMove = s.lastMove;
     moveHistory = [...s.moveHistory];
     uciHistory = [...s.uciHistory];
+    halfmoveClock = s.halfmoveClock;
+    posKeys = [...s.posKeys];
     selected = null;
     selectedTargets = {};
     chosenMove = null;
@@ -269,6 +275,9 @@ class GameController extends ChangeNotifier {
       enPassantSquare: enPassantSquare,
     );
 
+    final isCapture =
+        board[to] != '.' || (type == 'p' && (from % 8) != (to % 8));
+    halfmoveClock = (type == 'p' || isCapture) ? 0 : halfmoveClock + 1;
     board = MoveGen.apply(board, from, to, promotion: promotion);
     castlingRights = newRights.isEmpty ? '-' : newRights;
     enPassantSquare = newEp;
@@ -277,6 +286,7 @@ class GameController extends ChangeNotifier {
 
     lastMove = Move(from, to, promotion);
     whiteToMove = !whiteToMove;
+    posKeys.add(_posKey());
     selected = null;
     selectedTargets = {};
     chosenMove = null;
@@ -294,6 +304,20 @@ class GameController extends ChangeNotifier {
       status = whiteToMove ? 'Skak untuk Putih.' : 'Skak untuk Hitam.';
     } else {
       status = '';
+    }
+    if (!gameOver) {
+      final autoDraw = _autoDraw();
+      if (autoDraw != null) {
+        gameOver = true;
+        status = autoDraw;
+        evalFraction = 0.5;
+        evalText = '0.0';
+      } else {
+        final claim = _claimableDraw();
+        if (claim != null) {
+          status = status.isEmpty ? claim : '$status  $claim';
+        }
+      }
     }
     notifyListeners();
 
@@ -331,6 +355,62 @@ class GameController extends ChangeNotifier {
       if (targets.isNotEmpty) return true;
     }
     return false;
+  }
+
+  // Kunci posisi untuk hitungan repetisi: susunan bidak, giliran, hak rokade.
+  String _posKey() => toFen().split(' ').take(3).join(' ');
+
+  int _repetitions() {
+    if (posKeys.isEmpty) return 0;
+    final key = posKeys.last;
+    var n = 0;
+    for (final k in posKeys) {
+      if (k == key) n++;
+    }
+    return n;
+  }
+
+  bool _insufficientMaterial() {
+    var knights = 0;
+    final bishops = <int>[];
+    for (var i = 0; i < 64; i++) {
+      final p = board[i];
+      if (p == '.') continue;
+      final t = p.toLowerCase();
+      if (t == 'n') {
+        knights++;
+      } else if (t == 'b') {
+        bishops.add(i);
+      } else if (t != 'k') {
+        return false; // masih ada pion / benteng / menteri
+      }
+    }
+    final minors = knights + bishops.length;
+    if (minors <= 1) return true; // K v K, atau K + 1 bidak ringan v K
+    if (knights == 0) {
+      // hanya gajah: seri kalau semuanya di warna kotak yang sama
+      int colorOf(int sq) => ((sq ~/ 8) + (sq % 8)) % 2;
+      final c = colorOf(bishops.first);
+      return bishops.every((b) => colorOf(b) == c);
+    }
+    return false;
+  }
+
+  // Seri otomatis: game berhenti.
+  String? _autoDraw() {
+    if (_insufficientMaterial()) return 'Seri: material tidak cukup.';
+    if (_repetitions() >= 5) return 'Seri: posisi berulang 5 kali.';
+    if (halfmoveClock >= 150) return 'Seri: aturan 75 langkah.';
+    return null;
+  }
+
+  // Seri yang boleh diklaim: game tetap lanjut.
+  String? _claimableDraw() {
+    if (_repetitions() >= 3) {
+      return 'Seri bisa diklaim: posisi berulang 3 kali.';
+    }
+    if (halfmoveClock >= 100) return 'Seri bisa diklaim: aturan 50 langkah.';
+    return null;
   }
 
   Future<void> _advise() async {
@@ -401,6 +481,8 @@ class GameController extends ChangeNotifier {
       lastMove,
       [...moveHistory],
       [...uciHistory],
+      halfmoveClock,
+      [...posKeys],
     ));
     if (_undo.length > 200) _undo.removeAt(0);
   }
@@ -447,6 +529,8 @@ class _Snapshot {
   final Move? lastMove;
   final List<String> moveHistory;
   final List<String> uciHistory;
+  final int halfmoveClock;
+  final List<String> posKeys;
   _Snapshot(
     this.board,
     this.whiteToMove,
@@ -455,5 +539,7 @@ class _Snapshot {
     this.lastMove,
     this.moveHistory,
     this.uciHistory,
+    this.halfmoveClock,
+    this.posKeys,
   );
 }
