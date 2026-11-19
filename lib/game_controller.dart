@@ -303,9 +303,10 @@ class GameController extends ChangeNotifier {
       final fen = toFen();
       final seed = Humanizer.seedFrom(fen);
 
-      // 1. Opening book
+      // 1. Opening book: langkah gold langsung tampil.
+      Move? bookMove;
       if (moveHistory.length < 16) {
-        final bookMove = book.getMove(
+        bookMove = book.getMove(
           moveHistory,
           board,
           whiteToMove: whiteToMove,
@@ -314,24 +315,25 @@ class GameController extends ChangeNotifier {
           rng: Random(seed),
         );
         if (bookMove != null) {
-          if (gen != _gen) return;
           chosenMove = bookMove;
           fromBook = true;
-          return;
+          notifyListeners();
         }
       }
 
-      // 2. Stockfish
+      // 2. Stockfish tetap jalan: eval bar + panah alternatif (hitam/abu).
       final lines = await engine.analyse(uciHistory, depth: engineDepth);
       if (gen != _gen) return;
       if (lines.isNotEmpty) {
         lastLines = lines;
         _updateEval(lines);
-        chosenMove = humanizer.pick(
-          lines,
-          blunderChance: blunderChance,
-          seed: seed,
-        );
+        if (bookMove == null) {
+          chosenMove = humanizer.pick(
+            lines,
+            blunderChance: blunderChance,
+            seed: seed,
+          );
+        }
       }
     } catch (_) {
       if (gen == _gen) lastLines = [];

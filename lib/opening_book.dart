@@ -4,8 +4,9 @@ import 'chess_types.dart';
 import 'san.dart';
 
 class OpeningBook {
-  // Kunci: riwayat SAN tanpa +/# (mis. "e4 e5 Nf3"), nilai: langkah berikutnya.
-  final Map<String, List<String>> _book = {};
+  // Kunci: riwayat SAN tanpa +/# (mis. "e4 e5 Nf3").
+  // Nilai: langkah berikutnya -> jumlah baris opening yang melewatinya.
+  final Map<String, Map<String, int>> _book = {};
   bool _loaded = false;
 
   int get size => _book.length;
@@ -32,9 +33,14 @@ class OpeningBook {
         if (s.isEmpty) continue;
         moves.add(San.normalize(s));
       }
-      if (moves.isEmpty) continue;
-      final key = moves.sublist(0, moves.length - 1).join(' ');
-      _book.putIfAbsent(key, () => []).add(moves.last);
+
+      // Setiap langkah di baris ini menambah hitungan di posisinya.
+      final prefix = <String>[];
+      for (final m in moves) {
+        final bucket = _book.putIfAbsent(prefix.join(' '), () => {});
+        bucket[m] = (bucket[m] ?? 0) + 1;
+        prefix.add(m);
+      }
     }
   }
 
@@ -47,17 +53,30 @@ class OpeningBook {
     required Random rng,
   }) {
     final key = sanHistory.map(San.normalize).join(' ');
-    final cands = _book[key];
-    if (cands == null || cands.isEmpty) return null;
+    final bucket = _book[key];
+    if (bucket == null || bucket.isEmpty) return null;
 
     final legal = San.legalMap(board, whiteToMove,
         castlingRights: castlingRights, enPassantSquare: enPassantSquare);
-    final valid = <Move>[];
-    for (final s in cands) {
-      final m = legal[s];
-      if (m != null) valid.add(m);
+
+    final moves = <Move>[];
+    final weights = <double>[];
+    var total = 0.0;
+    bucket.forEach((san, count) {
+      final m = legal[san];
+      if (m == null) return;
+      final w = sqrt(count.toDouble());
+      moves.add(m);
+      weights.add(w);
+      total += w;
+    });
+    if (moves.isEmpty) return null;
+
+    var roll = rng.nextDouble() * total;
+    for (var i = 0; i < moves.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) return moves[i];
     }
-    if (valid.isEmpty) return null;
-    return valid[rng.nextInt(valid.length)];
+    return moves.last;
   }
 }
