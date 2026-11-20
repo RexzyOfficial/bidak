@@ -122,6 +122,7 @@ class MoveQuality {
     required double epAfter,
     required double? epSecond,
     required bool realSacrifice,
+    required bool isRecapture,
     required bool topIsMate,
     required bool playedStillMates,
     required LabelKind? prevOppKind,
@@ -136,7 +137,10 @@ class MoveQuality {
       return MoveLabel(LabelKind.brilliant, loss);
     }
     if (playedIsTop) {
-      if (epSecond != null && epBefore >= 0.30 && epBefore - epSecond >= 0.20) {
+      if (!isRecapture &&
+          epSecond != null &&
+          epBefore >= 0.30 &&
+          epBefore - epSecond >= 0.20) {
         return const MoveLabel(LabelKind.great, 0.0);
       }
       return const MoveLabel(LabelKind.best, 0.0);
@@ -151,10 +155,7 @@ class MoveQuality {
     // Gagal memanfaatkan kesalahan lawan di langkah sebelumnya.
     final missedChance = epBefore >= 0.60 &&
         (prevOppKind == LabelKind.mistake || prevOppKind == LabelKind.blunder);
-    if (loss < 0.10) {
-      return MoveLabel(
-          missedChance ? LabelKind.miss : LabelKind.inaccuracy, loss);
-    }
+    if (loss < 0.10) return MoveLabel(LabelKind.inaccuracy, loss);
     if (loss < 0.20) {
       return MoveLabel(missedChance ? LabelKind.miss : LabelKind.mistake, loss);
     }

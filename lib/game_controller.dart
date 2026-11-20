@@ -476,6 +476,18 @@ class GameController extends ChangeNotifier {
         moved.toLowerCase() != 'k' &&
         MoveQuality.pieceValue(moved) >= 3) {
       sacrifice = MoveQuality.sacrificeValue(board, move) >= 2;
+      if (sacrifice) {
+        // Bukan Brilliant kalau ada langkah non-pengorbanan yang hampir
+        // sama bagus di 3 besar mesin.
+        for (final l in before) {
+          if (l.move.toUci() == played) continue;
+          if (MoveQuality.ep(l) < epBefore - 0.01) continue;
+          if (MoveQuality.sacrificeValue(board, l.move) < 2) {
+            sacrifice = false;
+            break;
+          }
+        }
+      }
     }
 
     LabelKind? prevKind;
@@ -484,8 +496,12 @@ class GameController extends ChangeNotifier {
       prevKind = labels[prevIdx]?.kind;
     }
 
+    final lm = lastMove;
+    final recapture = lm != null && lm.to == to && board[to] != '.';
+
     _pending = _Pending(
       index: moveHistory.length,
+      recapture: recapture,
       before: before,
       playedUci: played,
       isBook: isBook,
@@ -548,6 +564,7 @@ class GameController extends ChangeNotifier {
       epAfter: epAfter,
       epSecond: epSecond,
       realSacrifice: p.sacrifice,
+      isRecapture: p.recapture,
       topIsMate: topIsMate,
       playedStillMates: stillMates,
       prevOppKind: p.prevKind,
@@ -670,6 +687,7 @@ class _Pending {
   final bool isBook;
   final bool forced;
   final bool sacrifice;
+  final bool recapture;
   final LabelKind? prevKind;
   final double epBefore;
   final double? epAfter;
@@ -680,6 +698,7 @@ class _Pending {
     required this.isBook,
     required this.forced,
     required this.sacrifice,
+    required this.recapture,
     required this.prevKind,
     required this.epBefore,
     required this.epAfter,
