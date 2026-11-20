@@ -12,3 +12,6 @@ android/.gradle/
 android/app/.cxx/
 external/nnue/
 tools/gm2001.bin
+*.jks
+*.keystore
+key.properties

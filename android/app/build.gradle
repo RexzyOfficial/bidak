@@ -21,7 +21,7 @@ android {
         applicationId = "com.rexzy.bidak"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
         versionName = "1.0.0"
 
         ndk {
@@ -29,9 +29,21 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("KEYSTORE_PATH")
+            if (ksPath != null && new File(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            signingConfig = System.getenv("KEYSTORE_PATH") != null ? signingConfigs.release : signingConfigs.debug
             minifyEnabled = false
             shrinkResources = false
         }
