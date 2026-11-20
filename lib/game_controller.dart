@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'chess_types.dart';
 import 'humanizer.dart';
+import 'move_labels.dart';
 import 'movegen.dart';
 import 'opening_book.dart';
 import 'san.dart';
@@ -49,6 +50,8 @@ class GameController extends ChangeNotifier {
 
   List<String> moveHistory = [];
   List<String> uciHistory = [];
+  List<MoveLabel?> labels = [];
+  _Pending? _pending;
   final List<_Snapshot> _undo = [];
 
   int _gen = 0;
@@ -160,6 +163,8 @@ class GameController extends ChangeNotifier {
     uciHistory = [];
     halfmoveClock = 0;
     posKeys = [_posKey()];
+    labels = [];
+    _pending = null;
     _undo.clear();
     notifyListeners();
   }
@@ -182,6 +187,10 @@ class GameController extends ChangeNotifier {
     uciHistory = [...s.uciHistory];
     halfmoveClock = s.halfmoveClock;
     posKeys = [...s.posKeys];
+    _pending = null;
+    if (labels.length > moveHistory.length) {
+      labels.removeRange(moveHistory.length, labels.length);
+    }
     selected = null;
     selectedTargets = {};
     chosenMove = null;
@@ -261,6 +270,7 @@ class GameController extends ChangeNotifier {
   }
 
   void _applyManual(int from, int to, {String? promotion}) {
+    _capturePending(from, to, promotion);
     _cancelAnalysis();
     _pushUndo();
 
@@ -290,6 +300,8 @@ class GameController extends ChangeNotifier {
     castlingRights = newRights.isEmpty ? '-' : newRights;
     enPassantSquare = newEp;
     moveHistory.add(san);
+    labels.add(null);
+    _tryInstantLabel();
     uciHistory.add(Move(from, to, promotion).toUci());
 
     lastMove = Move(from, to, promotion);
@@ -421,6 +433,127 @@ class GameController extends ChangeNotifier {
     return null;
   }
 
+  // ---- Label kualitas langkah ----
+  void _capturePending(int from, int to, String? promotion) {
+    _pending = null;
+    final move = Move(from, to, promotion);
+    final isBook = book.containsMove(toFen(), move);
+
+    var legalCount = 0;
+    for (var i = 0; i < 64; i++) {
+      final p = board[i];
+      if (p == '.' || _isWhitePiece(p) != whiteToMove) continue;
+      legalCount += MoveGen.legalTargets(
+        board,
+        i,
+        castlingRights: castlingRights,
+        enPassantSquare: enPassantSquare,
+      ).length;
+    }
+    final forced = legalCount == 1;
+    if (lastLines.isEmpty && !isBook && !forced) return;
+
+    final before = [...lastLines]
+      ..sort((a, b) => a.multipv.compareTo(b.multipv));
+    final played = move.toUci();
+
+    var epBefore = 0.5;
+    double? epAfter;
+    if (before.isNotEmpty) {
+      epBefore = MoveQuality.ep(before.first);
+      for (final l in before) {
+        if (l.move.toUci() == played) {
+          epAfter = MoveQuality.ep(l);
+          break;
+        }
+      }
+    }
+
+    var sacrifice = false;
+    final moved = board[from];
+    if (!isBook &&
+        !forced &&
+        moved.toLowerCase() != 'k' &&
+        MoveQuality.pieceValue(moved) >= 3) {
+      sacrifice = MoveQuality.sacrificeValue(board, move) >= 2;
+    }
+
+    LabelKind? prevKind;
+    final prevIdx = moveHistory.length - 1;
+    if (prevIdx >= 0 && prevIdx < labels.length) {
+      prevKind = labels[prevIdx]?.kind;
+    }
+
+    _pending = _Pending(
+      index: moveHistory.length,
+      before: before,
+      playedUci: played,
+      isBook: isBook,
+      forced: forced,
+      sacrifice: sacrifice,
+      prevKind: prevKind,
+      epBefore: epBefore,
+      epAfter: epAfter,
+    );
+  }
+
+  void _tryInstantLabel() {
+    final p = _pending;
+    if (p == null || p.index >= labels.length) return;
+    if (p.forced) {
+      labels[p.index] = const MoveLabel(LabelKind.forced, 0.0);
+      _pending = null;
+      return;
+    }
+    if (p.isBook) {
+      labels[p.index] = const MoveLabel(LabelKind.book, 0.0);
+      _pending = null;
+      return;
+    }
+    final after = p.epAfter;
+    if (after != null) {
+      _applyLabel(p, after);
+      _pending = null;
+    }
+  }
+
+  void _resolvePendingLabel(List<EngineLine> afterLines) {
+    final p = _pending;
+    if (p == null || afterLines.isEmpty || p.before.isEmpty) return;
+    // Analisis posisi sesudah langkah ada di sudut pandang lawan.
+    final epOpp = MoveQuality.ep(afterLines.first);
+    _applyLabel(p, 1.0 - epOpp);
+    _pending = null;
+  }
+
+  void _applyLabel(_Pending p, double epAfter) {
+    if (p.index >= labels.length || p.before.isEmpty) return;
+    final top = p.before.first;
+    final playedIsTop = top.move.toUci() == p.playedUci;
+    final epSecond =
+        p.before.length > 1 ? MoveQuality.ep(p.before[1]) : null;
+    final topIsMate = top.isMate && top.mateIn > 0;
+    var stillMates = epAfter >= 0.95;
+    for (final l in p.before) {
+      if (l.move.toUci() == p.playedUci) {
+        stillMates = l.isMate && l.mateIn > 0;
+        break;
+      }
+    }
+    labels[p.index] = MoveQuality.classify(
+      forced: p.forced,
+      isBook: p.isBook,
+      playedIsTop: playedIsTop,
+      epBefore: p.epBefore,
+      epAfter: epAfter,
+      epSecond: epSecond,
+      realSacrifice: p.sacrifice,
+      topIsMate: topIsMate,
+      playedStillMates: stillMates,
+      prevOppKind: p.prevKind,
+    );
+  }
+
   Future<void> _advise() async {
     if (!engineReady) return;
     final gen = ++_gen;
@@ -460,6 +593,7 @@ class GameController extends ChangeNotifier {
       if (lines.isNotEmpty) {
         lastLines = lines;
         _updateEval(lines);
+        _resolvePendingLabel(lines);
         if (bookMove == null) {
           final picked = humanizer.pick(
             lines,
@@ -527,6 +661,29 @@ class GameController extends ChangeNotifier {
     sb.write(' 0 1');
     return sb.toString();
   }
+}
+
+class _Pending {
+  final int index;
+  final List<EngineLine> before;
+  final String playedUci;
+  final bool isBook;
+  final bool forced;
+  final bool sacrifice;
+  final LabelKind? prevKind;
+  final double epBefore;
+  final double? epAfter;
+  _Pending({
+    required this.index,
+    required this.before,
+    required this.playedUci,
+    required this.isBook,
+    required this.forced,
+    required this.sacrifice,
+    required this.prevKind,
+    required this.epBefore,
+    required this.epAfter,
+  });
 }
 
 class _Snapshot {

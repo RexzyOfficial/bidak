@@ -317,21 +317,46 @@ class _MoveHistory extends StatelessWidget {
   final bool vertical;
   const _MoveHistory({required this.c, required this.vertical});
 
-  List<String> _items() {
-    final items = <String>[];
+  InlineSpan _san(int idx, TextStyle style) {
+    final san = c.moveHistory[idx];
+    final lab = idx < c.labels.length ? c.labels[idx] : null;
+    return TextSpan(
+      children: <InlineSpan>[
+        TextSpan(text: san, style: style),
+        if (lab != null)
+          TextSpan(
+            text: ' ●',
+            style: style.copyWith(color: Color(lab.colorValue), fontSize: 11),
+          ),
+      ],
+    );
+  }
+
+  List<Widget> _items(TextStyle style) {
+    final items = <Widget>[];
     for (var i = 0; i < c.moveHistory.length; i += 2) {
       final moveNum = (i ~/ 2) + 1;
-      final white = c.moveHistory[i];
-      final black = (i + 1 < c.moveHistory.length) ? c.moveHistory[i + 1] : '';
-      items.add('$moveNum. $white $black');
+      final hasBlack = i + 1 < c.moveHistory.length;
+      items.add(
+        Text.rich(
+          TextSpan(
+            children: <InlineSpan>[
+              TextSpan(text: '$moveNum. ', style: style),
+              _san(i, style),
+              if (hasBlack) TextSpan(text: ' ', style: style),
+              if (hasBlack) _san(i + 1, style),
+            ],
+          ),
+        ),
+      );
     }
     return items;
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = _items();
     const style = TextStyle(fontFamily: 'monospace', fontSize: 13);
+    final items = _items(style);
     final deco = BoxDecoration(
       color: Colors.black26,
       borderRadius: BorderRadius.circular(8),
@@ -344,8 +369,7 @@ class _MoveHistory extends StatelessWidget {
           reverse: true,
           padding: const EdgeInsets.all(8),
           itemCount: items.length,
-          itemBuilder: (context, i) =>
-              Text(items[items.length - 1 - i], style: style),
+          itemBuilder: (context, i) => items[items.length - 1 - i],
         ),
       );
     }
@@ -360,14 +384,12 @@ class _MoveHistory extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               reverse: true,
               itemCount: items.length,
-              itemBuilder: (context, i) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Text(items[items.length - 1 - i], style: style),
-                  ),
-                );
-              },
+              itemBuilder: (context, i) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: items[items.length - 1 - i],
+                ),
+              ),
             ),
     );
   }

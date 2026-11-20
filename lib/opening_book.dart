@@ -46,6 +46,16 @@ class OpeningBook {
     }
   }
 
+  bool containsMove(String fen, Move m) {
+    final key = fen.split(' ').take(4).join(' ');
+    final cands = _book[key];
+    if (cands == null) return false;
+    for (final c in cands) {
+      if (c.move.from == m.from && c.move.to == m.to) return true;
+    }
+    return false;
+  }
+
   Move? getMove(
     String fen,
     List<String> board, {

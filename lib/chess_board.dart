@@ -2,11 +2,87 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'game_controller.dart';
+import 'move_labels.dart';
 import 'movegen.dart';
 
 class ChessBoardView extends StatelessWidget {
   final GameController c;
   const ChessBoardView({super.key, required this.c});
+
+  Widget _badgeGlyph(LabelKind k, double size) {
+    Widget txt(String s) => Text(
+          s,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: size * 0.52,
+            height: 1.0,
+          ),
+        );
+    Widget ico(IconData i) => Icon(i, color: Colors.white, size: size * 0.62);
+    return switch (k) {
+      LabelKind.brilliant => txt('!!'),
+      LabelKind.great => txt('!'),
+      LabelKind.best => ico(Icons.star),
+      LabelKind.excellent => ico(Icons.thumb_up),
+      LabelKind.good => ico(Icons.check),
+      LabelKind.book => ico(Icons.menu_book),
+      LabelKind.inaccuracy => txt('?!'),
+      LabelKind.mistake => txt('?'),
+      LabelKind.blunder => txt('??'),
+      LabelKind.miss => ico(Icons.close),
+      LabelKind.forced => ico(Icons.arrow_forward),
+    };
+  }
+
+  Widget _labelBadge(double sq) {
+    final idx = c.moveHistory.length - 1;
+    final move = c.lastMove;
+    if (idx < 0 || idx >= c.labels.length || move == null) {
+      return const SizedBox.shrink();
+    }
+    final lab = c.labels[idx];
+    if (lab == null) return const SizedBox.shrink();
+
+    var f = move.to % 8;
+    var r = move.to ~/ 8;
+    if (c.flipped) {
+      f = 7 - f;
+      r = 7 - r;
+    }
+    final size = sq * 0.44;
+    final left =
+        ((f + 1) * sq - size * 0.7).clamp(0.0, 8 * sq - size).toDouble();
+    final top = (r * sq - size * 0.3).clamp(0.0, 8 * sq - size).toDouble();
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: size,
+      height: size,
+      child: IgnorePointer(
+        child: Container(
+          decoration: BoxDecoration(
+            color: Color(lab.colorValue),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: sq * 0.02),
+            boxShadow: const [
+              BoxShadow(color: Color(0x66000000), blurRadius: 3),
+            ],
+          ),
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Padding(
+                padding: EdgeInsets.all(size * 0.14),
+                child: _badgeGlyph(lab.kind, size),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   String _pieceCode(String p) {
     final isWhite = p == p.toUpperCase();
@@ -100,6 +176,7 @@ class ChessBoardView extends StatelessWidget {
                   child: CustomPaint(painter: _ArrowPainter(c, sq)),
                 ),
               ),
+              _labelBadge(sq),
             ],
           ),
         ),
