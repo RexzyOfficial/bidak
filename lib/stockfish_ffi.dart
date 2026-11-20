@@ -190,7 +190,13 @@ class StockfishFfi {
         _send('stop');
         await idle.future
             .timeout(const Duration(seconds: 3), onTimeout: () {});
-        return <EngineLine>[];
+        // Bantuan dari 'stop': bestmove biasanya sudah mengisi hasil.
+        if (result.isCompleted) return await result.future;
+        // Kalau tidak, pakai hasil parsial terakhir, bukan daftar kosong.
+        final partial = _acc.values.toList()
+          ..sort((a, b) => a.multipv.compareTo(b.multipv));
+        _acc.clear();
+        return partial;
       },
     );
   }
